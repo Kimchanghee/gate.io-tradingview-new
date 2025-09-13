@@ -85,7 +85,7 @@ const mimeTypes = {
 };
 
 // Gate.io API 호출 - 수정된 서명 버전
-async function callGateioAPI(method, endpoint, data = {}) {
+async function callGateioAPI(method, endpoint, data = {}, isSpotAPI = false) {
   if (!GATEIO_API_KEY || !GATEIO_API_SECRET) {
     throw new Error('Gate.io API credentials not configured');
   }
@@ -99,11 +99,12 @@ async function callGateioAPI(method, endpoint, data = {}) {
   const signString = `${method}\n${endpoint}\n${queryString}\n${payloadHash}\n${timestamp}`;
   const signature = crypto.createHmac('sha512', GATEIO_API_SECRET).update(signString, 'utf8').digest('hex');
 
-  const baseUrl = GATEIO_TESTNET 
-    ? 'https://fx-api-testnet.gateio.ws'
-    : 'https://api.gateio.ws';
+  // Spot API는 테스트넷이 없으므로 항상 메인넷 사용
+  const baseUrl = isSpotAPI 
+    ? 'https://api.gateio.ws'
+    : (GATEIO_TESTNET ? 'https://fx-api-testnet.gateio.ws' : 'https://api.gateio.ws');
 
-  logMultiple('API 호출', { method, endpoint, timestamp, hasBody: !!bodyStr });
+  logMultiple('API 호출', { method, endpoint, timestamp, hasBody: !!bodyStr, isSpotAPI });
 
   const response = await fetch(`${baseUrl}${endpoint}`, {
     method,
@@ -161,8 +162,8 @@ async function setLeverage(symbol, leverage) {
   }
 }
 
-// 계정 정보 조회 함수 개선
-async function getAccountInfo() {
+// 계정 정보 조회 함수 개선 - 선물 계정
+async function getFuturesAccountInfo() {
   try {
     const account = await callGateioAPI('GET', '/api/v4/futures/usdt/accounts');
     
@@ -175,7 +176,142 @@ async function getAccountInfo() {
       currency: account.currency || 'USDT'
     };
   } catch (error) {
-    logMultiple('계정 정보 조회 실패', { error: error.message });
+    logMultiple('선물 계정 정보 조회 실패', { error: error.message });
+    throw error;
+  }
+}
+
+// 현물 계정 정보 조회 함수 추가
+async function getSpotBalances() {
+  try {
+    // 현물 계정 잔고 조회
+    const balances = await callGateioAPI('GET', '/api/v4/spot/accounts', {}, true);
+    
+    // USDT와 주요 코인들만 필터링
+    const majorCoins = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'MATIC'];
+    const filteredBalances = balances
+      .filter(b => {
+        const available = parseFloat(b.available || 0);
+        const locked = parseFloat(b.locked || 0);
+        const total = available + locked;
+        // 0이 아닌 잔고만 포함하거나 주요 코인인 경우
+        return total > 0 || majorCoins.includes(b.currency);
+      })
+      .map(b => ({
+        currency: b.currency,
+        available: parseFloat(b.available || 0),
+        locked: parseFloat(b.locked || 0),
+        total: parseFloat(b.available || 0) + parseFloat(b.locked || 0)
+      }))
+      .sort((a, b) => {
+        // USDT를 맨 위로, 그 다음 잔고가 큰 순서로
+        if (a.currency === 'USDT') return -1;
+        if (b.currency === 'USDT') return 1;
+        return b.total - a.total;
+      });
+    
+    return filteredBalances;
+  } catch (error) {
+    logMultiple('현물 계정 조회 실패', { error: error.message });
+    return [];
+  }
+}
+
+// 마진 계정 정보 조회 함수 추가
+async function getMarginBalances() {
+  try {
+    const accounts = await callGateioAPI('GET', '/api/v4/margin/accounts', {}, true);
+    
+    // 마진 계정 정보 정리
+    const marginBalances = accounts
+      .filter(acc => {
+        const total = parseFloat(acc.base?.total || 0) + parseFloat(acc.quote?.total || 0);
+        return total > 0;
+      })
+      .map(acc => ({
+        currencyPair: acc.currency_pair,
+        base: {
+          currency: acc.base?.currency || '',
+          available: parseFloat(acc.base?.available || 0),
+          locked: parseFloat(acc.base?.locked || 0),
+          borrowed: parseFloat(acc.base?.borrowed || 0),
+          interest: parseFloat(acc.base?.interest || 0)
+        },
+        quote: {
+          currency: acc.quote?.currency || '',
+          available: parseFloat(acc.quote?.available || 0),
+          locked: parseFloat(acc.quote?.locked || 0),
+          borrowed: parseFloat(acc.quote?.borrowed || 0),
+          interest: parseFloat(acc.quote?.interest || 0)
+        },
+        risk: parseFloat(acc.risk || 0)
+      }));
+    
+    return marginBalances;
+  } catch (error) {
+    logMultiple('마진 계정 조회 실패', { error: error.message });
+    return [];
+  }
+}
+
+// 옵션 계정 정보 조회 함수 추가
+async function getOptionsAccountInfo() {
+  try {
+    const account = await callGateioAPI('GET', '/api/v4/options/accounts', {}, false);
+    
+    return {
+      total: parseFloat(account.total || 0),
+      available: parseFloat(account.available || 0),
+      positionValue: parseFloat(account.position_value || 0),
+      orderMargin: parseFloat(account.order_margin || 0),
+      unrealisedPnl: parseFloat(account.unrealised_pnl || 0)
+    };
+  } catch (error) {
+    logMultiple('옵션 계정 조회 실패', { error: error.message });
+    // 옵션 계정이 없을 수 있으므로 빈 객체 반환
+    return null;
+  }
+}
+
+// 통합 계정 정보 조회 함수
+async function getAllAccountInfo() {
+  try {
+    const [futures, spot, margin, options] = await Promise.allSettled([
+      getFuturesAccountInfo(),
+      getSpotBalances(),
+      getMarginBalances(),
+      getOptionsAccountInfo()
+    ]);
+
+    const result = {
+      futures: futures.status === 'fulfilled' ? futures.value : null,
+      spot: spot.status === 'fulfilled' ? spot.value : [],
+      margin: margin.status === 'fulfilled' ? margin.value : [],
+      options: options.status === 'fulfilled' ? options.value : null
+    };
+
+    // 총 자산 계산 (USDT 기준 추정치)
+    let totalEstimatedValue = 0;
+    
+    if (result.futures) {
+      totalEstimatedValue += result.futures.total;
+    }
+    
+    // 현물 USDT 잔고 추가
+    const usdtBalance = result.spot.find(b => b.currency === 'USDT');
+    if (usdtBalance) {
+      totalEstimatedValue += usdtBalance.total;
+    }
+    
+    if (result.options) {
+      totalEstimatedValue += result.options.total;
+    }
+
+    result.totalEstimatedValue = totalEstimatedValue;
+    
+    return result;
+  } catch (error) {
+    logMultiple('통합 계정 정보 조회 실패', { error: error.message });
     throw error;
   }
 }
@@ -350,7 +486,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      // API 연결 테스트 - 자금 없음도 성공으로 처리
+      // API 연결 테스트 - 통합 계정 정보 포함
       if (pathname === '/api/connect' && req.method === 'POST') {
         const body = await parseBody(req);
         const { apiKey, apiSecret, isTestnet } = body;
@@ -367,13 +503,15 @@ const server = createServer(async (req, res) => {
           GATEIO_API_SECRET = apiSecret;
           GATEIO_TESTNET = isTestnet;
 
-          // 계정 정보 조회로 연결 테스트
-          const accountInfo = await getAccountInfo();
+          // 통합 계정 정보 조회
+          const allAccounts = await getAllAccountInfo();
           const positions = await getPositions();
           
           logMultiple('API 연결 성공', { 
-            testnet: isTestnet, 
-            total: accountInfo.total,
+            testnet: isTestnet,
+            hasFutures: !!allAccounts.futures,
+            spotCount: allAccounts.spot.length,
+            hasOptions: !!allAccounts.options,
             positionCount: positions.length 
           });
           
@@ -382,25 +520,41 @@ const server = createServer(async (req, res) => {
             ok: true, 
             message: 'API 연결 성공',
             network: isTestnet ? 'testnet' : 'mainnet',
-            account: accountInfo,
+            accounts: allAccounts,
             positions: positions
           }));
         } catch (error) {
           // 자금 부족 오류는 연결 성공으로 처리
           if (error.message.includes('please transfer funds first')) {
             logMultiple('API 연결 성공 - 선물계정 자금 없음', { testnet: isTestnet });
+            
+            // 현물 계정만이라도 조회 시도
+            let spotBalances = [];
+            try {
+              spotBalances = await getSpotBalances();
+            } catch (e) {
+              logMultiple('현물 계정 조회도 실패', { error: e.message });
+            }
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
               ok: true, 
               message: 'API 연결 성공',
               network: isTestnet ? 'testnet' : 'mainnet',
-              account: {
-                total: 0,
-                available: 0,
-                positionMargin: 0,
-                orderMargin: 0,
-                unrealisedPnl: 0,
-                currency: 'USDT'
+              accounts: {
+                futures: {
+                  total: 0,
+                  available: 0,
+                  positionMargin: 0,
+                  orderMargin: 0,
+                  unrealisedPnl: 0,
+                  currency: 'USDT'
+                },
+                spot: spotBalances,
+                margin: [],
+                options: null,
+                totalEstimatedValue: spotBalances.reduce((sum, b) => 
+                  b.currency === 'USDT' ? sum + b.total : sum, 0)
               },
               positions: [],
               warning: '선물 계정에 자금이 없습니다. 현물→선물로 자금을 이체해주세요.'
@@ -415,6 +569,19 @@ const server = createServer(async (req, res) => {
               error: error.message
             }));
           }
+        }
+        return;
+      }
+
+      // 통합 계정 정보 조회 API
+      if (pathname === '/api/accounts/all' && req.method === 'GET') {
+        try {
+          const allAccounts = await getAllAccountInfo();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(allAccounts));
+        } catch (error) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
         }
         return;
       }
