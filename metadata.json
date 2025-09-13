@@ -1,0 +1,5 @@
+{
+  "name": "Gate.io Futures Trading UI",
+  "description": "A sophisticated frontend interface for a Gate.io futures trading bot, designed to interact with a backend proxy for API communication and webhook handling.",
+  "requestFramePermissions": []
+}

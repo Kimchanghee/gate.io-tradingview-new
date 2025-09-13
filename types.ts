@@ -1,0 +1,44 @@
+
+export interface Settings {
+    apiKey: string;
+    apiSecret: string;
+    symbol: string;
+    investmentAmount: number;
+    leverage: number;
+}
+
+export interface Position {
+    contract: string;
+    size: number;
+    entry_price: string;
+    mark_price: string;
+    unrealised_pnl: string;
+    margin: string;
+}
+
+export enum LogType {
+    Info = 'info',
+    Success = 'success',
+    Warning = 'warning',
+    Error = 'error',
+}
+
+export interface LogEntry {
+    id: number;
+    timestamp: string;
+    message: string;
+    type: LogType;
+}
+
+export interface Notification {
+    id: number;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+}
+
+export enum Network {
+    Testnet = 'testnet',
+    Mainnet = 'mainnet'
+}
+
+export type Language = 'ko' | 'en' | 'ja';

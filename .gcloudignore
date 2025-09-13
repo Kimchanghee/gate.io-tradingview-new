@@ -1,0 +1,40 @@
+# Node modules
+node_modules/
+
+# Build outputs
+dist-ssr/
+
+# Development files
+src/
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env.local
+.env.development
+.env.production
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker (사용하지 않음)
+Dockerfile
+.dockerignore
+
+# Backend directory (사용하지 않음)
+backend/
+
+# Server directory (중복)
+server/
+
+# Documentation
+README.md
