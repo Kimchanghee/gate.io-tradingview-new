@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
+import { useAppContext } from '../contexts/AppContext';
 
 interface LogEntry {
   id: string | number;
@@ -9,6 +10,7 @@ interface LogEntry {
 }
 
 const LogsCard: React.FC = () => {
+  const { translate } = useAppContext();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -87,17 +89,17 @@ const LogsCard: React.FC = () => {
   };
 
   return (
-    <Card title="실시간 로그" className="h-96">
+    <Card title={translate('realtimeLogs')} className="h-96">
       <div className="flex flex-col h-full">
         {/* 제어 버튼 */}
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-400">
-              총 {logs.length}개 로그
+              {translate('totalLogs')}: {logs.length}
             </span>
             <div className="flex items-center space-x-1">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs text-green-400">실시간</span>
+              <span className="text-xs text-green-400">{translate('realtime')}</span>
             </div>
           </div>
           <div className="flex space-x-2">
@@ -109,19 +111,19 @@ const LogsCard: React.FC = () => {
                   : 'bg-gray-600 text-gray-300'
               }`}
             >
-              자동스크롤
+              {translate('autoScroll')}
             </button>
             <button
               onClick={clearLogs}
               className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
             >
-              클리어
+              {translate('clear')}
             </button>
             <button
               onClick={fetchLogs}
               className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
             >
-              새로고침
+              {translate('refresh')}
             </button>
           </div>
         </div>
@@ -130,9 +132,9 @@ const LogsCard: React.FC = () => {
         <div className="flex-1 bg-black rounded-lg p-3 overflow-y-auto font-mono text-xs">
           {logs.length === 0 ? (
             <div className="text-gray-500 text-center py-8">
-              아직 로그가 없습니다.
+              {translate('noLogs')}
               <br />
-              웹훅을 전송하거나 API를 호출해보세요.
+              {translate('logsHint')}
             </div>
           ) : (
             <div className="space-y-1">
@@ -153,7 +155,7 @@ const LogsCard: React.FC = () => {
 
         {/* 상태 표시 */}
         <div className="mt-2 text-xs text-gray-500 text-center">
-          마지막 업데이트: {new Date().toLocaleTimeString('ko-KR')}
+          {translate('lastUpdate')}: {new Date().toLocaleTimeString('ko-KR')}
         </div>
       </div>
     </Card>

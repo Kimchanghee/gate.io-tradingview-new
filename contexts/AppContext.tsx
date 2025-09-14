@@ -1,7 +1,6 @@
-
 import React, { createContext, useReducer, useContext, ReactNode, Dispatch, useCallback, useEffect } from 'react';
 import { Settings, Position, LogEntry, Notification, Network, Language, LogType } from '../types';
-import { TRANSLATIONS } from '../constants';
+import { TRANSLATIONS, TranslationKeys } from '../locales';
 import { WEBSOCKET_URL } from '../config';
 
 // State Interface
@@ -33,7 +32,7 @@ type Action =
 const initialState: AppState = {
     isConnected: false,
     isConnecting: false,
-    network: Network.Testnet,
+    network: Network.Mainnet,  // ← Testnet에서 Mainnet으로 변경
     language: 'ko',
     settings: {
         apiKey: '',
@@ -84,7 +83,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
 const AppContext = createContext<{
     state: AppState;
     dispatch: Dispatch<Action>;
-    translate: (key: string) => string;
+    translate: (key: TranslationKeys) => string;
 }>({
     state: initialState,
     dispatch: () => null,
@@ -101,18 +100,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             if (savedSettings) {
                 dispatch({ type: 'UPDATE_SETTINGS', payload: JSON.parse(savedSettings) });
             }
+            
+            // 저장된 언어 설정 불러오기
+            const savedLanguage = localStorage.getItem('gateio_language');
+            if (savedLanguage && ['ko', 'en', 'ja'].includes(savedLanguage)) {
+                dispatch({ type: 'SET_LANGUAGE', payload: savedLanguage as Language });
+            }
         } catch (error) {
             console.error("Failed to load settings from localStorage", error);
         }
     }, []);
 
-    const translate = useCallback((key: string): string => {
+    // 언어 변경 시 localStorage에 저장
+    useEffect(() => {
+        localStorage.setItem('gateio_language', state.language);
+    }, [state.language]);
+    
+    // 네트워크 변경 시 localStorage에 저장
+    useEffect(() => {
+        localStorage.setItem('gateio_network', state.network);
+    }, [state.network]);
+
+    const translate = useCallback((key: TranslationKeys): string => {
         return TRANSLATIONS[state.language][key] || key;
     }, [state.language]);
     
-    // Mock WebSocket connection to backend
+    // Mock WebSocket connection to backend (필요시)
     useEffect(() => {
-        if (!state.isConnected) return;
+        if (!state.isConnected || !WEBSOCKET_URL) return;
 
         const ws = new WebSocket(`${WEBSOCKET_URL}/ws`);
 

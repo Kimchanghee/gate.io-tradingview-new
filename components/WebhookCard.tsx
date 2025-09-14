@@ -18,13 +18,13 @@ const WebhookCard: React.FC = () => {
         navigator.clipboard.writeText(WEBHOOK_URL).then(() => {
             setCopied(true);
             dispatch({ type: 'ADD_LOG', payload: { 
-                message: `📋 Webhook URL이 복사되었습니다: ${WEBHOOK_URL}`, 
+                message: `📋 ${translate('urlCopied')}: ${WEBHOOK_URL}`, 
                 type: LogType.Info 
             } });
             setTimeout(() => setCopied(false), 2000);
         }).catch(() => {
             dispatch({ type: 'ADD_LOG', payload: { 
-                message: '❌ URL 복사에 실패했습니다', 
+                message: `❌ ${translate('connectionFailed')}`, 
                 type: LogType.Error 
             } });
         });
@@ -67,11 +67,11 @@ const WebhookCard: React.FC = () => {
             const errorMessage = (error as Error).message;
             
             dispatch({ type: 'ADD_LOG', payload: { 
-                message: `❌ Webhook ${action} 실패: ${errorMessage}`, 
+                message: `❌ Webhook ${action} failed: ${errorMessage}`, 
                 type: LogType.Error 
             } });
             dispatch({ type: 'ADD_NOTIFICATION', payload: { 
-                message: `Webhook ${action} 실패: ${errorMessage}`, 
+                message: `Webhook ${action} failed: ${errorMessage}`, 
                 type: 'error' 
             } });
         }
@@ -86,7 +86,7 @@ const WebhookCard: React.FC = () => {
                         {translate('webhookDescription')}
                     </p>
                     <p className="text-xs text-blue-400 mb-3">
-                        TradingView Alert에서 사용할 URL:
+                        {translate('webhookUrlDesc')}
                     </p>
                     <div className="flex items-center gap-2">
                         <input 
@@ -107,32 +107,49 @@ const WebhookCard: React.FC = () => {
 
                 {/* Webhook 상태 표시 */}
                 <div className="flex items-center gap-2 p-3 bg-gate-dark rounded-lg">
-                    <span className="text-sm text-gate-text-secondary">상태:</span>
+                    <span className="text-sm text-gate-text-secondary">{translate('webhookStatus')}</span>
                     <span className={`text-sm font-bold flex items-center gap-2 ${
                         state.webhookActive ? 'text-green-400' : 'text-gray-400'
                     }`}>
                         <span className={`w-2 h-2 rounded-full ${
                             state.webhookActive ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
                         }`}></span>
-                        {state.webhookActive ? '활성화됨' : '비활성화됨'}
+                        {state.webhookActive ? translate('activated') : translate('deactivated')}
                     </span>
                 </div>
 
                 {/* TradingView Alert JSON 예시 */}
                 <div className="bg-gate-dark p-4 rounded-xl border border-gate-border">
                     <p className="text-sm text-gate-text-secondary mb-3">
-                        📋 TradingView Alert JSON 예시:
+                        📋 {translate('webhookJsonExample')}
                     </p>
                     <div className="bg-slate-900 p-3 rounded-lg">
                         <pre className="text-xs text-green-400 overflow-x-auto">
-{`{
-  "action": "open",
-  "symbol": "BTC_USDT",
-  "side": "buy",
+{`// TradingView 파인스크립트 신호 형식
+{
+  "signal": "LONG ENTER",
+  "symbol": "{{ticker}}"
+}
+
+// 또는 상세 설정 포함
+{
+  "signal": "SHORT ENTER",
+  "symbol": "{{ticker}}",
   "size": 100,
   "leverage": 10
+}
+
+// 포지션 종료 신호
+{
+  "signal": "LONG EXIT",
+  "symbol": "{{ticker}}"
 }`}
                         </pre>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-400">
+                        <p>✅ 지원되는 신호: LONG ENTER, SHORT ENTER, LONG EXIT, SHORT EXIT</p>
+                        <p>✅ 심볼은 자동으로 Gate.io 형식으로 변환됩니다</p>
+                        <p>✅ size와 leverage는 선택사항 (기본값 사용)</p>
                     </div>
                 </div>
 
@@ -158,7 +175,7 @@ const WebhookCard: React.FC = () => {
                 <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                     <p className="text-sm text-blue-400 flex items-center gap-2">
                         <span>💡</span>
-                        TradingView에서 Alert 생성 → Webhook URL 입력 → JSON 메시지 설정
+                        {translate('webhookHint')}
                     </p>
                 </div>
             </div>

@@ -1,0 +1,364 @@
+/* Gate.io Banner Styles */
+.banner-wrapper {
+    margin-bottom: 32px;
+}
+
+/* PC Banner */
+.pc-banner {
+    width: 100%;
+    max-width: 1200px;
+    height: 120px;
+    background: linear-gradient(105deg, #000000 0%, #0f1419 50%, #000000 100%);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 50px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    animation: borderGlow 3s ease-in-out infinite;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@keyframes borderGlow {
+    0%, 100% { border-color: #00d4ff; box-shadow: 0 0 20px rgba(0,212,255,0.3); }
+    50% { border-color: #00ff88; box-shadow: 0 0 30px rgba(0,255,136,0.4); }
+}
+
+.pc-banner::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+        linear-gradient(rgba(0,212,255,0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.1) 1px, transparent 1px);
+    background-size: 50px 50px;
+    animation: gridMove 10s linear infinite;
+    opacity: 0.3;
+}
+
+@keyframes gridMove {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(50px, 50px); }
+}
+
+.chart-bg {
+    position: absolute;
+    top: 50%;
+    left: 10%;
+    transform: translateY(-50%);
+    width: 300px;
+    height: 120px;
+    opacity: 0.2;
+}
+
+.chart-line {
+    stroke: #00ff88;
+    stroke-width: 2;
+    fill: none;
+    filter: drop-shadow(0 0 10px #00ff88);
+    animation: drawLine 3s ease-in-out infinite;
+}
+
+@keyframes drawLine {
+    0% { stroke-dasharray: 0 1000; }
+    100% { stroke-dasharray: 1000 0; }
+}
+
+.banner-content {
+    display: flex;
+    align-items: center;
+    gap: 60px;
+    z-index: 2;
+    width: 100%;
+    position: relative;
+}
+
+.logo {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #00d4ff, #0080ff);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 900;
+    color: white;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,212,255,0.4);
+    animation: logoFloat 4s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes logoFloat {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-5px) rotate(2deg); }
+}
+
+.logo::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shine 3s ease-in-out infinite;
+}
+
+@keyframes shine {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.text-section {
+    flex: 1;
+    color: white;
+    min-width: 0;
+}
+
+.main-title {
+    font-size: 24px;
+    font-weight: 900;
+    margin-bottom: 10px;
+    background: linear-gradient(90deg, #ffffff, #00d4ff, #ffffff);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: textShine 3s linear infinite;
+    letter-spacing: -1px;
+    white-space: nowrap;
+}
+
+@keyframes textShine {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+}
+
+.sub-title {
+    font-size: 14px;
+    color: #a0a0a0;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.discount-badge {
+    background: linear-gradient(135deg, #ff0844, #ff6b00);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 4px;
+    font-size: 36px;
+    font-weight: 900;
+    position: relative;
+    text-align: center;
+    box-shadow: 
+        0 0 40px rgba(255,8,68,0.6),
+        inset 0 0 20px rgba(255,255,255,0.2);
+    animation: pulse 2s ease-in-out infinite;
+    transform: skewX(-5deg);
+}
+
+@keyframes pulse {
+    0%, 100% { 
+        transform: skewX(-5deg) scale(1);
+        box-shadow: 0 0 40px rgba(255,8,68,0.6), inset 0 0 20px rgba(255,255,255,0.2);
+    }
+    50% { 
+        transform: skewX(-5deg) scale(1.05);
+        box-shadow: 0 0 60px rgba(255,8,68,0.8), inset 0 0 30px rgba(255,255,255,0.3);
+    }
+}
+
+.discount-badge::before {
+    content: attr(data-upto);
+    position: absolute;
+    top: -15px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    background: #ffeb3b;
+    color: #000;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.discount-text {
+    color: #00ff88;
+    font-size: 14px;
+    margin-top: 10px;
+    text-align: center;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(0,255,136,0.5);
+    white-space: nowrap;
+}
+
+.cta-button {
+    background: linear-gradient(90deg, #00ff88, #00d4ff);
+    color: #000;
+    padding: 12px 30px;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 900;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 
+        0 0 30px rgba(0,255,136,0.5),
+        inset 0 0 20px rgba(255,255,255,0.3);
+    letter-spacing: 1px;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.cta-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    animation: buttonShine 3s ease-in-out infinite;
+}
+
+@keyframes buttonShine {
+    0% { left: -100%; }
+    50%, 100% { left: 100%; }
+}
+
+.cta-button:hover {
+    transform: scale(1.1);
+    box-shadow: 
+        0 0 50px rgba(0,255,136,0.8),
+        inset 0 0 30px rgba(255,255,255,0.5);
+}
+
+.bonus-text {
+    color: #ffeb3b;
+    font-size: 12px;
+    font-weight: 700;
+    animation: blink 2s ease-in-out infinite;
+    white-space: nowrap;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.sparkle {
+    position: absolute;
+    color: #ffeb3b;
+    animation: sparkle 2s ease-in-out infinite;
+}
+
+.sparkle1 { top: 20%; left: 15%; animation-delay: 0s; }
+.sparkle2 { top: 70%; left: 25%; animation-delay: 0.5s; }
+.sparkle3 { top: 30%; right: 20%; animation-delay: 1s; }
+.sparkle4 { top: 60%; right: 15%; animation-delay: 1.5s; }
+
+@keyframes sparkle {
+    0%, 100% { opacity: 0; transform: scale(0); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+/* Mobile Banner */
+.mobile-banner {
+    width: 100%;
+    max-width: 800px;
+    height: 100px;
+    background: linear-gradient(105deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid #00d4ff;
+    box-shadow: 0 0 30px rgba(0,212,255,0.4);
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.mobile-banner::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+        linear-gradient(rgba(0,212,255,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+}
+
+.mobile-banner .banner-content {
+    gap: 20px;
+}
+
+.mobile-banner .logo {
+    width: 50px;
+    height: 50px;
+    font-size: 12px;
+}
+
+.mobile-banner .main-title {
+    font-size: 14px;
+}
+
+.mobile-banner .sub-title {
+    font-size: 10px;
+}
+
+.mobile-banner .discount-badge {
+    font-size: 24px;
+    padding: 8px 12px;
+}
+
+.mobile-banner .discount-text {
+    font-size: 12px;
+}
+
+.mobile-banner .cta-button {
+    padding: 8px 16px;
+    font-size: 12px;
+}
+
+.mobile-banner .bonus-text {
+    font-size: 10px;
+}
+
+/* Responsive banner containers */
+.mobile-banner-container {
+    display: block;
+}
+.pc-banner-container {
+    display: none;
+}
+
+@media (min-width: 1024px) {
+    .mobile-banner-container {
+        display: none;
+    }
+    .pc-banner-container {
+        display: block;
+    }
+}

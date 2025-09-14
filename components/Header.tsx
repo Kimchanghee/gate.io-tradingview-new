@@ -1,6 +1,6 @@
-
 import React from 'react';
 import { useAppContext } from '../contexts/AppContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { Network, Language } from '../types';
 
 const LightningIcon: React.FC = () => (
@@ -9,8 +9,21 @@ const LightningIcon: React.FC = () => (
     </svg>
 );
 
+const SunIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+);
+
+const MoonIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+    </svg>
+);
+
 const Header: React.FC = () => {
     const { state, dispatch, translate } = useAppContext();
+    const { theme, toggleTheme } = useTheme();
 
     const handleNetworkChange = (network: Network) => {
         dispatch({ type: 'SET_NETWORK', payload: network });
@@ -27,6 +40,15 @@ const Header: React.FC = () => {
                 <h1 className="text-xl font-bold text-gate-primary">{translate('logo')}</h1>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
+                {/* 테마 토글 버튼 */}
+                <button
+                    onClick={toggleTheme}
+                    className="p-2 bg-gate-dark rounded-xl hover:bg-gate-secondary transition-colors"
+                    title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                >
+                    {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                </button>
+                
                 <select 
                     value={state.language}
                     onChange={handleLanguageChange}
@@ -38,16 +60,16 @@ const Header: React.FC = () => {
                 </select>
                 <div className="flex bg-gate-dark rounded-xl p-1">
                     <button 
-                        onClick={() => handleNetworkChange(Network.Testnet)}
-                        className={`px-5 py-1.5 rounded-lg text-sm transition-all duration-300 ${state.network === Network.Testnet ? 'bg-gate-primary text-gate-dark font-bold' : 'text-gate-text-secondary'}`}
-                    >
-                        {translate('testnet')}
-                    </button>
-                    <button 
                         onClick={() => handleNetworkChange(Network.Mainnet)}
                         className={`px-5 py-1.5 rounded-lg text-sm transition-all duration-300 ${state.network === Network.Mainnet ? 'bg-gate-primary text-gate-dark font-bold' : 'text-gate-text-secondary'}`}
                     >
                         {translate('mainnet')}
+                    </button>
+                    <button 
+                        onClick={() => handleNetworkChange(Network.Testnet)}
+                        className={`px-5 py-1.5 rounded-lg text-sm transition-all duration-300 ${state.network === Network.Testnet ? 'bg-gate-primary text-gate-dark font-bold' : 'text-gate-text-secondary'}`}
+                    >
+                        {translate('testnet')}
                     </button>
                 </div>
             </div>
