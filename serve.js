@@ -5,7 +5,7 @@
 // - UI 입력(USDT·레버리지)로 계약수 산출(USDT*lev/mark_price) 후 시장가(IoC) 진입/청산
 
 import { createServer } from 'http';
-import { readFileSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseUrl } from 'url';
@@ -29,6 +29,16 @@ const logs = [];
 const webhookSignals = Object.create(null);
 let isConnected = false;
 const SETTINGS_FILE = join(__dirname, 'server-settings.json');
+const DATA_DIR = join(__dirname, 'data');
+const USERS_FILE = join(DATA_DIR, 'users.json');
+const STRATEGIES_FILE = join(DATA_DIR, 'strategies.json');
+const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
+const DEFAULT_STRATEGY_ID = 'default';
+const USER_SIGNAL_LIMIT = 100;
+
+let users = [];
+let strategies = [];
+const userSignalQueues = new Map();
 
 // ===== 유틸 =====
 function logMultiple(message, data = null, force = true) {
@@ -92,6 +102,94 @@ function loadSettingsFromDisk() {
 }
 
 loadSettingsFromDisk();
+
+function ensureDataDir() {
+  try {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  } catch (error) {
+    logMultiple('??? ???? ?? ??', { error: error.message });
+  }
+}
+function readJsonFile(filePath, fallback) {
+  try {
+    if (!existsSync(filePath)) return fallback;
+    const raw = readFileSync(filePath, 'utf-8');
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    logMultiple('JSON ?? ?? ??', { file: filePath, error: error.message });
+    return fallback;
+  }
+}
+function writeJsonFile(filePath, data) {
+  try {
+    writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: 'utf-8' });
+  } catch (error) {
+    logMultiple('JSON ?? ?? ??', { file: filePath, error: error.message });
+  }
+}
+function loadUsers() {
+  users = readJsonFile(USERS_FILE, []);
+  users.forEach(u => { if (!userSignalQueues.has(u.uid)) userSignalQueues.set(u.uid, []); });
+}
+function loadStrategies() {
+  strategies = readJsonFile(STRATEGIES_FILE, []);
+}
+function persistUsers() { writeJsonFile(USERS_FILE, users); }
+function persistStrategies() { writeJsonFile(STRATEGIES_FILE, strategies); }
+function generateId(prefix) {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+function getUser(uid) {
+  return users.find(u => u.uid === uid);
+}
+function filterApprovedUsersByStrategy(strategyId) {
+  return users.filter(u => u.status === 'approved' && Array.isArray(u.approvedStrategies) && u.approvedStrategies.includes(strategyId));
+}
+function pushUserSignal(uid, signal) {
+  if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+  const queue = userSignalQueues.get(uid);
+  queue.push(signal);
+  while (queue.length > USER_SIGNAL_LIMIT) queue.shift();
+}
+
+function distributeSignalToApprovedUsers(strategyId, entry) {
+  const recipients = filterApprovedUsersByStrategy(strategyId);
+  recipients.forEach(user => {
+    pushUserSignal(user.uid, entry);
+  });
+}
+
+ensureDataDir();
+function extractAdminToken(req, query) {
+  const headerToken = req.headers['x-admin-token'];
+  if (headerToken) return String(headerToken);
+  if (query && query.adminToken) return String(query.adminToken);
+  return '';
+}
+function ensureAdmin(req, res, query) {
+  if (!ADMIN_SECRET) {
+    sendJSON(res, 500, { error: 'ADMIN_SECRET not configured' });
+    return false;
+  }
+  const token = extractAdminToken(req, query);
+  if (!token || token !== ADMIN_SECRET) {
+    res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return false;
+  }
+  return true;
+}
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { apiSecret, accessKey, ...rest } = user;
+  return { ...rest, hasAccessKey: !!user.accessKey };
+}
+loadUsers();
+loadStrategies();
+if (!strategies.length) {
+  strategies.push({ id: DEFAULT_STRATEGY_ID, name: '?? ??', description: 'TradingView ?? ?? ??', active: true, createdAt: new Date().toISOString() });
+  persistStrategies();
+}
 
 const mime = {
   '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.mjs':'application/javascript; charset=utf-8',
@@ -443,7 +541,342 @@ const server = createServer(async (req, res) => {
 
   try {
     // ---------- API ----------
-    if (pathname.startsWith('/api/')) {
+    if (pathname.startsWith('/api/')) {﻿
+      if (pathname === '/api/strategies' && req.method === 'GET') {
+        const includeInactive = query && String(query.includeInactive).toLowerCase() === 'true';
+        const list = includeInactive ? strategies : strategies.filter(s => s.active !== false);
+        return sendJSON(res, 200, { strategies: list });
+      }
+
+      if (pathname === '/api/register' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const uidRaw = (body.uid && String(body.uid)) || '';
+        const uid = uidRaw.trim();
+        if (!uid) {
+          return sendJSON(res, 400, { ok: false, error: 'UID is required' });
+        }
+        const requested = Array.isArray(body.strategies) ? body.strategies.map(String) : [];
+        const uniqueStrategyIds = Array.from(new Set(requested.map(id => id.trim()).filter(Boolean)));
+        const validStrategyIds = uniqueStrategyIds.filter(id => strategies.some(s => s.id === id && s.active !== false));
+        if (!validStrategyIds.length) {
+          return sendJSON(res, 400, { ok: false, error: 'At least one valid strategy is required' });
+        }
+        const now = new Date().toISOString();
+        let user = getUser(uid);
+        if (!user) {
+          user = {
+            uid,
+            status: 'pending',
+            requestedStrategies: validStrategyIds,
+            approvedStrategies: [],
+            createdAt: now,
+            updatedAt: now
+          };
+          users.push(user);
+        } else {
+          user.requestedStrategies = validStrategyIds;
+          if (user.status === 'approved') {
+            user.approvedStrategies = [];
+            user.accessKey = undefined;
+          }
+          user.status = 'pending';
+          user.updatedAt = now;
+        }
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        persistUsers();
+        return sendJSON(res, 200, { ok: true, status: user.status, requestedStrategies: user.requestedStrategies });
+      }
+
+      if (pathname === '/api/user/status' && req.method === 'GET') {
+        const uid = query && query.uid ? String(query.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) {
+          return sendJSON(res, 200, { status: 'not_registered' });
+        }
+        const approved = (user.approvedStrategies || []).map(id => strategies.find(s => s.id === id)).filter(Boolean);
+        const requested = (user.requestedStrategies || []).map(id => strategies.find(s => s.id === id)).filter(Boolean);
+        return sendJSON(res, 200, {
+          status: user.status,
+          requestedStrategies: requested.map(s => ({ id: s.id, name: s.name })),
+          approvedStrategies: approved.map(s => ({ id: s.id, name: s.name })),
+          accessKey: user.status === 'approved' ? user.accessKey : undefined
+        });
+      }
+
+      if (pathname === '/api/user/signals' && req.method === 'GET') {
+        const uid = query && query.uid ? String(query.uid).trim() : '';
+        const key = query && query.key ? String(query.key).trim() : '';
+        if (!uid || !key) {
+          return sendJSON(res, 400, { error: 'uid and key required' });
+        }
+        const user = getUser(uid);
+        if (!user || user.status !== 'approved' || user.accessKey !== key) {
+          return sendJSON(res, 403, { error: 'forbidden' });
+        }
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        const queue = userSignalQueues.get(uid);
+        const signals = queue.splice(0, queue.length);
+        return sendJSON(res, 200, { signals });
+      }
+
+      if (pathname === '/api/admin/overview' && req.method === 'GET') {
+        if (!ensureAdmin(req, res, query)) return;
+        const sanitized = users.map(u => ({
+          ...u,
+          accessKey: u.accessKey || null
+        }));
+        return sendJSON(res, 200, {
+          users: sanitized,
+          strategies,
+          stats: {
+            totalUsers: users.length,
+            pending: users.filter(u => u.status === 'pending').length,
+            approved: users.filter(u => u.status === 'approved').length
+          }
+        });
+      }
+
+      if (pathname === '/api/admin/users/approve' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const uid = body && body.uid ? String(body.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) return sendJSON(res, 404, { error: 'user not found' });
+        const requested = Array.isArray(body.strategies) ? body.strategies.map(String) : [];
+        const validStrategyIds = Array.from(new Set(requested.map(id => id.trim()).filter(Boolean))).filter(id => strategies.some(s => s.id === id));
+        if (!validStrategyIds.length) return sendJSON(res, 400, { error: 'strategies required' });
+        const now = new Date().toISOString();
+        user.status = 'approved';
+        user.approvedStrategies = validStrategyIds;
+        user.approvedAt = now;
+        user.updatedAt = now;
+        if (!user.accessKey) user.accessKey = generateId('ak');
+        persistUsers();
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        return sendJSON(res, 200, { ok: true, user });
+      }
+
+      if (pathname === '/api/admin/users/deny' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const uid = body && body.uid ? String(body.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) return sendJSON(res, 404, { error: 'user not found' });
+        user.status = 'denied';
+        user.approvedStrategies = [];
+        user.accessKey = undefined;
+        user.updatedAt = new Date().toISOString();
+        persistUsers();
+        return sendJSON(res, 200, { ok: true, user });
+      }
+
+      if (pathname === '/api/admin/strategies' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const name = body && body.name ? String(body.name).trim() : '';
+        if (!name) return sendJSON(res, 400, { error: 'name required' });
+        const id = body && body.id ? String(body.id).trim() : generateId('st');
+        if (strategies.some(s => s.id === id)) return sendJSON(res, 400, { error: 'strategy id already exists' });
+        const strategy = { id, name, description: body.description ? String(body.description) : '', active: body.active !== false, createdAt: new Date().toISOString() };
+        strategies.push(strategy);
+        persistStrategies();
+        return sendJSON(res, 200, { ok: true, strategy });
+      }
+
+      if (pathname.startsWith('/api/admin/strategies/') && req.method === 'PATCH') {
+        if (!ensureAdmin(req, res, query)) return;
+        const parts = pathname.split('/');
+        const id = parts[parts.length - 1];
+        const strategy = strategies.find(s => s.id === id);
+        if (!strategy) return sendJSON(res, 404, { error: 'strategy not found' });
+        const body = await parseBody(req);
+        if (body.name) strategy.name = String(body.name);
+        if (typeof body.description === 'string') strategy.description = body.description;
+        if (typeof body.active !== 'undefined') strategy.active = !!body.active;
+        strategy.updatedAt = new Date().toISOString();
+        persistStrategies();
+        return sendJSON(res, 200, { ok: true, strategy });
+      }
+
+      if (pathname === '/api/admin/signals' && req.method === 'GET') {
+        if (!ensureAdmin(req, res, query)) return;
+        const strategyId = query && query.strategy ? String(query.strategy) : DEFAULT_STRATEGY_ID;
+        const list = webhookSignals[strategyId] || [];
+        return sendJSON(res, 200, { strategyId, signals: list.slice(-100) });
+      }
+
+
+
+      if (pathname === '/api/strategies' && req.method === 'GET') {
+        const includeInactive = query && String(query.includeInactive).toLowerCase() === 'true';
+        const list = includeInactive ? strategies : strategies.filter(s => s.active !== false);
+        return sendJSON(res, 200, { strategies: list });
+      }
+
+      if (pathname === '/api/register' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const uidRaw = (body.uid && String(body.uid)) || '';
+        const uid = uidRaw.trim();
+        if (!uid) {
+          return sendJSON(res, 400, { ok: false, error: 'UID is required' });
+        }
+        const requested = Array.isArray(body.strategies) ? body.strategies.map(String) : [];
+        const uniqueStrategyIds = Array.from(new Set(requested.map(id => id.trim()).filter(Boolean)));
+        const validStrategyIds = uniqueStrategyIds.filter(id => strategies.some(s => s.id === id && s.active !== false));
+        if (!validStrategyIds.length) {
+          return sendJSON(res, 400, { ok: false, error: 'At least one valid strategy is required' });
+        }
+        const now = new Date().toISOString();
+        let user = getUser(uid);
+        if (!user) {
+          user = {
+            uid,
+            status: 'pending',
+            requestedStrategies: validStrategyIds,
+            approvedStrategies: [],
+            createdAt: now,
+            updatedAt: now
+          };
+          users.push(user);
+        } else {
+          user.requestedStrategies = validStrategyIds;
+          if (user.status === 'approved') {
+            user.approvedStrategies = [];
+            user.accessKey = undefined;
+          }
+          user.status = 'pending';
+          user.updatedAt = now;
+        }
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        persistUsers();
+        return sendJSON(res, 200, { ok: true, status: user.status, requestedStrategies: user.requestedStrategies });
+      }
+
+      if (pathname === '/api/user/status' && req.method === 'GET') {
+        const uid = query && query.uid ? String(query.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) {
+          return sendJSON(res, 200, { status: 'not_registered' });
+        }
+        const approved = (user.approvedStrategies || []).map(id => strategies.find(s => s.id === id)).filter(Boolean);
+        const requested = (user.requestedStrategies || []).map(id => strategies.find(s => s.id === id)).filter(Boolean);
+        return sendJSON(res, 200, {
+          status: user.status,
+          requestedStrategies: requested.map(s => ({ id: s.id, name: s.name })),
+          approvedStrategies: approved.map(s => ({ id: s.id, name: s.name })),
+          accessKey: user.status === 'approved' ? user.accessKey : undefined
+        });
+      }
+
+      if (pathname === '/api/user/signals' && req.method === 'GET') {
+        const uid = query && query.uid ? String(query.uid).trim() : '';
+        const key = query && query.key ? String(query.key).trim() : '';
+        if (!uid || !key) {
+          return sendJSON(res, 400, { error: 'uid and key required' });
+        }
+        const user = getUser(uid);
+        if (!user || user.status !== 'approved' || user.accessKey !== key) {
+          return sendJSON(res, 403, { error: 'forbidden' });
+        }
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        const queue = userSignalQueues.get(uid);
+        const signals = queue.splice(0, queue.length);
+        return sendJSON(res, 200, { signals });
+      }
+
+      if (pathname === '/api/admin/overview' && req.method === 'GET') {
+        if (!ensureAdmin(req, res, query)) return;
+        const sanitized = users.map(u => ({
+          ...u,
+          accessKey: u.accessKey || null
+        }));
+        return sendJSON(res, 200, {
+          users: sanitized,
+          strategies,
+          stats: {
+            totalUsers: users.length,
+            pending: users.filter(u => u.status === 'pending').length,
+            approved: users.filter(u => u.status === 'approved').length
+          }
+        });
+      }
+
+      if (pathname === '/api/admin/users/approve' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const uid = body && body.uid ? String(body.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) return sendJSON(res, 404, { error: 'user not found' });
+        const requested = Array.isArray(body.strategies) ? body.strategies.map(String) : [];
+        const validStrategyIds = Array.from(new Set(requested.map(id => id.trim()).filter(Boolean))).filter(id => strategies.some(s => s.id === id));
+        if (!validStrategyIds.length) return sendJSON(res, 400, { error: 'strategies required' });
+        const now = new Date().toISOString();
+        user.status = 'approved';
+        user.approvedStrategies = validStrategyIds;
+        user.approvedAt = now;
+        user.updatedAt = now;
+        if (!user.accessKey) user.accessKey = generateId('ak');
+        persistUsers();
+        if (!userSignalQueues.has(uid)) userSignalQueues.set(uid, []);
+        return sendJSON(res, 200, { ok: true, user });
+      }
+
+      if (pathname === '/api/admin/users/deny' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const uid = body && body.uid ? String(body.uid).trim() : '';
+        if (!uid) return sendJSON(res, 400, { error: 'uid required' });
+        const user = getUser(uid);
+        if (!user) return sendJSON(res, 404, { error: 'user not found' });
+        user.status = 'denied';
+        user.approvedStrategies = [];
+        user.accessKey = undefined;
+        user.updatedAt = new Date().toISOString();
+        persistUsers();
+        return sendJSON(res, 200, { ok: true, user });
+      }
+
+      if (pathname === '/api/admin/strategies' && req.method === 'POST') {
+        if (!ensureAdmin(req, res, query)) return;
+        const body = await parseBody(req);
+        const name = body && body.name ? String(body.name).trim() : '';
+        if (!name) return sendJSON(res, 400, { error: 'name required' });
+        const id = body && body.id ? String(body.id).trim() : generateId('st');
+        if (strategies.some(s => s.id === id)) return sendJSON(res, 400, { error: 'strategy id already exists' });
+        const strategy = { id, name, description: body.description ? String(body.description) : '', active: body.active !== false, createdAt: new Date().toISOString() };
+        strategies.push(strategy);
+        persistStrategies();
+        return sendJSON(res, 200, { ok: true, strategy });
+      }
+
+      if (pathname.startsWith('/api/admin/strategies/') && req.method === 'PATCH') {
+        if (!ensureAdmin(req, res, query)) return;
+        const parts = pathname.split('/');
+        const id = parts[parts.length - 1];
+        const strategy = strategies.find(s => s.id === id);
+        if (!strategy) return sendJSON(res, 404, { error: 'strategy not found' });
+        const body = await parseBody(req);
+        if (body.name) strategy.name = String(body.name);
+        if (typeof body.description === 'string') strategy.description = body.description;
+        if (typeof body.active !== 'undefined') strategy.active = !!body.active;
+        strategy.updatedAt = new Date().toISOString();
+        persistStrategies();
+        return sendJSON(res, 200, { ok: true, strategy });
+      }
+
+      if (pathname === '/api/admin/signals' && req.method === 'GET') {
+        if (!ensureAdmin(req, res, query)) return;
+        const strategyId = query && query.strategy ? String(query.strategy) : DEFAULT_STRATEGY_ID;
+        const list = webhookSignals[strategyId] || [];
+        return sendJSON(res, 200, { strategyId, signals: list.slice(-100) });
+      }
+
+
 
       // 헬스
       if (pathname === '/api/health' && req.method === 'GET') {
@@ -589,17 +1022,26 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- WEBHOOK ----------
-    async function handleWebhook(webhookId, raw) {
+    ﻿async function handleWebhook(webhookId, raw) {
       const n = normalizeTradingView(raw);
+      if (!strategies.some(s => s.id === webhookId)) {
+        const autoStrategy = { id: webhookId, name: webhookId, description: '자동 생성된 전략', active: true, createdAt: new Date().toISOString() };
+        strategies.push(autoStrategy);
+        persistStrategies();
+      }
       if (!webhookSignals[webhookId]) webhookSignals[webhookId] = [];
+
+      const strategy = strategies.find(s => s.id === webhookId);
+      const strategyActive = !strategy || strategy.active !== false;
 
       const usedLeverage = Number(n.leverage) || defaultLeverage;
       let usedContracts = Number(n.size);
 
       if (n.action === 'open' && (!usedContracts || !isFinite(usedContracts))) {
         if (!n.symbol) {
-          const entry0 = { id: Date.now().toString(36), timestamp: new Date().toISOString(), ...n, status:'invalid' };
+          const entry0 = { id: Date.now().toString(36), timestamp: new Date().toISOString(), ...n, strategyId: webhookId, status:'invalid' };
           webhookSignals[webhookId].push(entry0);
+          if (webhookSignals[webhookId].length > 200) webhookSignals[webhookId] = webhookSignals[webhookId].slice(-200);
           return { ok:true, stored:true };
         }
         usedContracts = await usdtToContracts(n.symbol, investmentAmountUSDT, usedLeverage);
@@ -608,30 +1050,41 @@ const server = createServer(async (req, res) => {
       const entry = {
         id: Date.now().toString(36), timestamp: new Date().toISOString(),
         action:n.action, side:n.side, symbol:n.symbol, size:usedContracts, leverage:usedLeverage,
-        status:'pending', raw:n.raw
+        status:'pending', raw:n.raw, strategyId: webhookId
       };
       webhookSignals[webhookId].push(entry);
       if (webhookSignals[webhookId].length > 200) webhookSignals[webhookId] = webhookSignals[webhookId].slice(-200);
 
-      logMultiple(`📡 웹훅 수신 [${webhookId}]`, formatWebhookSignalForLog(entry));
+      logMultiple(📡 웹훅 수신 [], formatWebhookSignalForLog(entry));
 
       const okToTrade = entry.symbol && (entry.action==='close' || (entry.action==='open' && (entry.side==='long'||entry.side==='short')));
       const hasCredentials = !!(GATEIO_API_KEY && GATEIO_API_SECRET);
 
+      let distributed = false;
+      const finalizeDistribution = () => {
+        if (!distributed) {
+          if (strategyActive) distributeSignalToApprovedUsers(webhookId, { ...entry });
+          distributed = true;
+        }
+      };
+
       if (!okToTrade) {
         entry.status = 'invalid';
+        finalizeDistribution();
         return { ok:true, stored:true, reason:'invalid_signal' };
       }
 
       if (!hasCredentials) {
         entry.status = 'no_api';
-        logMultiple('API ????? ?? ??', formatWebhookSignalForLog(entry));
+        logMultiple('API 미설정으로 거래 불가', formatWebhookSignalForLog(entry));
+        finalizeDistribution();
         return { ok:false, processed:false, error:'missing_api_credentials' };
       }
 
       if (!autoTrading) {
         entry.status = 'disabled';
-        logMultiple('???? ??? - ??? ??', formatWebhookSignalForLog(entry));
+        logMultiple('자동거래 비활성 - 신호만 저장', formatWebhookSignalForLog(entry));
+        finalizeDistribution();
         return { ok:true, stored:true, autoTrading:false };
       }
 
@@ -642,22 +1095,27 @@ const server = createServer(async (req, res) => {
           if (entry.leverage && entry.leverage > 1) await setLeverage(entry.symbol, entry.leverage);
           const result = await placeOpenOrder(entry.symbol, entry.side, entry.size);
           entry.status = 'executed';
-          logMultiple('?? ?? ?? ??', { symbol: entry.symbol, side: entry.side, size: entry.size, leverage: entry.leverage });
+          logMultiple('선물 진입 주문 실행', { symbol: entry.symbol, side: entry.side, size: entry.size, leverage: entry.leverage });
+          finalizeDistribution();
           return { ok:true, processed:true, result };
         } else {
           const result = await closePosition(entry.symbol);
           entry.status = 'executed';
-          logMultiple('??? ?? ?? ??', { symbol: entry.symbol });
+          logMultiple('포지션 청산 주문 실행', { symbol: entry.symbol });
+          finalizeDistribution();
           return { ok:true, processed:true, result };
         }
       } catch (e) {
         entry.status = 'failed';
-        logMultiple('?? ?? ??', { error:(e && e.message) || String(e), symbol: entry.symbol, action: entry.action, side: entry.side });
+        logMultiple('거래 주문 실패', { error:(e && e.message) || String(e), symbol: entry.symbol, action: entry.action, side: entry.side });
+        finalizeDistribution();
         return { ok:false, processed:false, error:(e && e.message) || String(e) };
       }
 
+      finalizeDistribution();
       return { ok:true, stored:true };
     }
+
 
     if (pathname === '/webhook' && req.method === 'POST') {
       const raw = await parseBody(req);
