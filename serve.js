@@ -5,7 +5,7 @@
 // - UI 입력(USDT·레버리지)로 계약수 산출(USDT*lev/mark_price) 후 시장가(IoC) 진입/청산
 
 import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseUrl } from 'url';
@@ -28,6 +28,7 @@ let defaultLeverage = 10;
 const logs = [];
 const webhookSignals = Object.create(null);
 let isConnected = false;
+const SETTINGS_FILE = join(__dirname, 'server-settings.json');
 
 // ===== 유틸 =====
 function logMultiple(message, data = null, force = true) {
@@ -41,6 +42,57 @@ function sendJSON(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return fallback;
+    return ['1', 'true', 'on', 'yes', 'y'].includes(normalized);
+  }
+  if (typeof value === 'number') return value !== 0;
+  return fallback;
+}
+function toNumberOr(value, fallback) {
+  const numeric = typeof value === 'string' && value.trim() === '' ? Number.NaN : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+function persistSettings() {
+  try {
+    const payload = {
+      autoTrading,
+      investmentAmountUSDT,
+      defaultLeverage,
+      updatedAt: new Date().toISOString()
+    };
+    writeFileSync(SETTINGS_FILE, JSON.stringify(payload, null, 2), { encoding: 'utf-8' });
+  } catch (error) {
+    logMultiple('?? ?? ?? ??', { error: error.message });
+  }
+}
+function loadSettingsFromDisk() {
+  try {
+    if (!existsSync(SETTINGS_FILE)) return;
+    const raw = readFileSync(SETTINGS_FILE, 'utf-8');
+    if (!raw) return;
+    const cfg = JSON.parse(raw);
+    if (typeof cfg.autoTrading !== 'undefined') autoTrading = parseBoolean(cfg.autoTrading, autoTrading);
+    if (typeof cfg.investmentAmountUSDT !== 'undefined') {
+      const parsedAmount = toNumberOr(cfg.investmentAmountUSDT, investmentAmountUSDT);
+      if (Number.isFinite(parsedAmount) && parsedAmount > 0) investmentAmountUSDT = parsedAmount;
+    }
+    if (typeof cfg.defaultLeverage !== 'undefined') {
+      const parsedLev = toNumberOr(cfg.defaultLeverage, defaultLeverage);
+      if (Number.isFinite(parsedLev) && parsedLev >= 1) defaultLeverage = parsedLev;
+    }
+    logMultiple('??? ???? ?? ??', { autoTrading, investmentAmountUSDT, defaultLeverage });
+  } catch (error) {
+    logMultiple('?? ?? ?? ??', { error: error.message });
+  }
+}
+
+loadSettingsFromDisk();
+
 const mime = {
   '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.mjs':'application/javascript; charset=utf-8',
   '.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8',
@@ -403,13 +455,46 @@ const server = createServer(async (req, res) => {
       }
 
       // 설정 저장(USDT/레버리지/오토)
+      if (pathname === '/api/settings' && req.method === 'GET') {
+        return sendJSON(res, 200, { autoTrading, investmentAmountUSDT, defaultLeverage });
+      }
+
       if (pathname === '/api/settings' && req.method === 'POST') {
         const body = await parseBody(req);
-        if (typeof body.autoTrading !== 'undefined') autoTrading = !!body.autoTrading;
-        if (typeof body.investmentAmountUSDT !== 'undefined') investmentAmountUSDT = Math.max(1, Number(body.investmentAmountUSDT));
-        if (typeof body.investmentAmount !== 'undefined') investmentAmountUSDT = Math.max(1, Number(body.investmentAmount)); // 호환
-        if (typeof body.defaultLeverage !== 'undefined') defaultLeverage = Math.max(1, Number(body.defaultLeverage));
-        return sendJSON(res, 200, { ok:true, saved:{ autoTrading, investmentAmountUSDT, defaultLeverage } });
+        let changed = false;
+
+        if (Object.prototype.hasOwnProperty.call(body, 'autoTrading')) {
+          const nextAuto = parseBoolean(body.autoTrading, autoTrading);
+          if (nextAuto !== autoTrading) {
+            autoTrading = nextAuto;
+            changed = true;
+          }
+        }
+
+        const amountSource = Object.prototype.hasOwnProperty.call(body, 'investmentAmountUSDT')
+          ? body.investmentAmountUSDT
+          : body.investmentAmount;
+        if (typeof amountSource !== 'undefined') {
+          const parsedAmount = toNumberOr(amountSource, investmentAmountUSDT);
+          const sanitizedAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : investmentAmountUSDT;
+          if (sanitizedAmount !== investmentAmountUSDT) {
+            investmentAmountUSDT = sanitizedAmount;
+            changed = true;
+          }
+        }
+
+        if (typeof body.defaultLeverage !== 'undefined') {
+          const parsedLeverage = toNumberOr(body.defaultLeverage, defaultLeverage);
+          const sanitizedLeverage = Number.isFinite(parsedLeverage) && parsedLeverage >= 1 ? parsedLeverage : defaultLeverage;
+          if (sanitizedLeverage !== defaultLeverage) {
+            defaultLeverage = sanitizedLeverage;
+            changed = true;
+          }
+        }
+
+        if (changed) persistSettings();
+
+        return sendJSON(res, 200, { ok:true, changed, saved:{ autoTrading, investmentAmountUSDT, defaultLeverage } });
       }
 
       // 연결 (키/시크릿/네트워크 유연 파싱) — 연결과 동시에 계정/포지션 리턴
@@ -531,25 +616,46 @@ const server = createServer(async (req, res) => {
       logMultiple(`📡 웹훅 수신 [${webhookId}]`, formatWebhookSignalForLog(entry));
 
       const okToTrade = entry.symbol && (entry.action==='close' || (entry.action==='open' && (entry.side==='long'||entry.side==='short')));
-      entry.status = okToTrade ? 'stored' : 'invalid';
+      const hasCredentials = !!(GATEIO_API_KEY && GATEIO_API_SECRET);
 
-      if (GATEIO_API_KEY && GATEIO_API_SECRET && autoTrading && okToTrade) {
-        try {
-          if (entry.action === 'open') {
-            if (entry.leverage && entry.leverage > 1) await setLeverage(entry.symbol, entry.leverage);
-            const result = await placeOpenOrder(entry.symbol, entry.side, entry.size);
-            entry.status = 'executed';
-            return { ok:true, processed:true, result };
-          } else {
-            const result = await closePosition(entry.symbol);
-            entry.status = 'executed';
-            return { ok:true, processed:true, result };
-          }
-        } catch (e) {
-          entry.status = 'failed';
-          return { ok:false, processed:false, error:(e && e.message) || String(e) };
-        }
+      if (!okToTrade) {
+        entry.status = 'invalid';
+        return { ok:true, stored:true, reason:'invalid_signal' };
       }
+
+      if (!hasCredentials) {
+        entry.status = 'no_api';
+        logMultiple('API ????? ?? ??', formatWebhookSignalForLog(entry));
+        return { ok:false, processed:false, error:'missing_api_credentials' };
+      }
+
+      if (!autoTrading) {
+        entry.status = 'disabled';
+        logMultiple('???? ??? - ??? ??', formatWebhookSignalForLog(entry));
+        return { ok:true, stored:true, autoTrading:false };
+      }
+
+      entry.status = 'stored';
+
+      try {
+        if (entry.action === 'open') {
+          if (entry.leverage && entry.leverage > 1) await setLeverage(entry.symbol, entry.leverage);
+          const result = await placeOpenOrder(entry.symbol, entry.side, entry.size);
+          entry.status = 'executed';
+          logMultiple('?? ?? ?? ??', { symbol: entry.symbol, side: entry.side, size: entry.size, leverage: entry.leverage });
+          return { ok:true, processed:true, result };
+        } else {
+          const result = await closePosition(entry.symbol);
+          entry.status = 'executed';
+          logMultiple('??? ?? ?? ??', { symbol: entry.symbol });
+          return { ok:true, processed:true, result };
+        }
+      } catch (e) {
+        entry.status = 'failed';
+        logMultiple('?? ?? ??', { error:(e && e.message) || String(e), symbol: entry.symbol, action: entry.action, side: entry.side });
+        return { ok:false, processed:false, error:(e && e.message) || String(e) };
+      }
+
       return { ok:true, stored:true };
     }
 
