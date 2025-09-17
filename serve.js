@@ -1,7 +1,7 @@
 // serve.js — 통합 서버 (Express 미사용)
-// 기능: 정적서빙 + API(연결/설정/헬스/로그/포지션/신호조회) + TradingView Webhook 수신
-// - Gate.io v4 서명 규격(밀리초 Timestamp) + 게이트 서버 시각 동기화
-// - 메인넷/테스트넷 연결 (/api/connect)
+// 기능: 정적서빙 + API(연결/설정/헬스/로그/포지션/계정조회) + TradingView Webhook 수신
+// - Gate.io v4 서명 규격(method\npath\nquery\nbodyHash\ntimestamp) + 서버시각 동기화
+// - Futures는 메인넷/테스트넷 분기, Spot/Margin/Options는 항상 메인넷
 // - UI 입력(USDT·레버리지)로 계약수 산출(USDT*lev/mark_price) 후 시장가(IoC) 진입/청산
 
 import { createServer } from 'http';
@@ -19,7 +19,7 @@ const DIST_DIR = join(__dirname, 'dist');
 // ===== 상태 =====
 let GATEIO_API_KEY = process.env.GATEIO_API_KEY || '';
 let GATEIO_API_SECRET = process.env.GATEIO_API_SECRET || '';
-let GATEIO_TESTNET = process.env.GATEIO_TESTNET === 'true';
+let GATEIO_TESTNET = process.env.GATEIO_TESTNET === 'true'; // futures만 분기
 
 let autoTrading = false;
 let investmentAmountUSDT = 100;
@@ -27,27 +27,25 @@ let defaultLeverage = 10;
 
 const logs = [];
 const webhookSignals = Object.create(null);
+let isConnected = false;
 
 // ===== 유틸 =====
-function logMultiple(message, data = null) {
+function logMultiple(message, data = null, force = true) {
   const ts = new Date().toISOString();
   const line = data ? `${message} ${JSON.stringify(data)}` : message;
   logs.push({ id: `${Date.now()}-${Math.random()}`, timestamp: ts, message: line });
   if (logs.length > 300) logs.shift();
-  console.log(`[${ts}] ${line}`);
+  if (force) console.log(`[${ts}] ${line}`);
 }
 function sendJSON(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
-function contentTypeByExt(p) {
-  const m = {
-    '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.mjs':'application/javascript; charset=utf-8',
-    '.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8',
-    '.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon'
-  };
-  return m[extname(p)] || 'application/octet-stream';
-}
+const mime = {
+  '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.mjs':'application/javascript; charset=utf-8',
+  '.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8',
+  '.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon'
+};
 // JSON / urlencoded / key:val / raw
 async function parseBody(req) {
   return new Promise((resolve) => {
@@ -134,24 +132,29 @@ function formatWebhookSignalForLog(signal) {
   return parts.length ? `거래신호 | ${parts.join(' | ')}` : '거래신호';
 }
 
-// ===== Gate.io v4 (밀리초 타임스탬프 + 서버 시각 동기화) =====
-// ===== Gate.io v4 (밀리초/초 모두 지원 + 서버 시각 동기화) =====
+// ===== Gate.io v4 (서명, 타임싱크) =====
 function hmacSign(secret, payload) {
   return crypto.createHmac('sha512', secret).update(payload).digest('hex');
 }
 function buildSignPayload(method, pathWithQuery, bodyObj, ts) {
   const [pathOnly, query = ''] = pathWithQuery.split('?', 2);
   const bodyStr = (method === 'GET' || method === 'DELETE') ? '' : JSON.stringify(bodyObj || {});
-  return `${ts}\n${method.toUpperCase()}\n${pathOnly}\n${query}\n${bodyStr}`;
+  const bodyHash = crypto.createHash('sha512').update(bodyStr).digest('hex');
+  // 공식 규격: method \n path \n query \n bodyHash \n timestamp
+  return `${method.toUpperCase()}\n${pathOnly}\n${query}\n${bodyHash}\n${ts}`;
 }
-const API_BASE = () => (GATEIO_TESTNET ? 'https://fx-api-testnet.gateio.ws' : 'https://fx-api.gateio.ws');
+const API_HOSTS = {
+  FUTURES_MAIN: 'https://fx-api.gateio.ws',
+  FUTURES_TEST: 'https://fx-api-testnet.gateio.ws',
+  SPOT_MAIN: 'https://api.gateio.ws',     // spot/margin/options 공용
+};
 
-// 서버 시각 동기화 (gate.io /api/v4/time)
+// 서버 시각 동기화 (/api/v4/time)
 let gateTimeDriftMs = 0; // gateTime - localTime
 let gateTimeLastSync = 0;
 async function syncGateTime() {
   try {
-    const url = `${API_BASE()}/api/v4/time`;
+    const url = `${API_HOSTS.FUTURES_MAIN}/api/v4/time`;
     const t0 = Date.now();
     const resp = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
     const text = await resp.text();
@@ -169,8 +172,20 @@ function gateNowMs() {
   return Date.now() + gateTimeDriftMs;
 }
 
-async function callGateioAPI(method, pathWithQuery, body = {}, auth = true) {
-  const url = `${API_BASE()}${pathWithQuery}`;
+/**
+ * Gate.io API 호출
+ * @param {'GET'|'POST'|'DELETE'} method 
+ * @param {string} pathWithQuery  예: /api/v4/futures/usdt/accounts
+ * @param {object} body 
+ * @param {('futures'|'spot')} apiGroup  - futures: FUTURES_* 호스트 / spot: SPOT_MAIN
+ * @param {boolean} auth  - 인증 필요 여부
+ */
+async function callGateioAPI(method, pathWithQuery, body = {}, apiGroup = 'futures', auth = true) {
+  const base =
+    apiGroup === 'futures'
+      ? (GATEIO_TESTNET ? API_HOSTS.FUTURES_TEST : API_HOSTS.FUTURES_MAIN)
+      : API_HOSTS.SPOT_MAIN;
+  const url = `${base}${pathWithQuery}`;
   const common = { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } };
   const withBody = (method === 'GET' || method === 'DELETE') ? {} : { body: JSON.stringify(body || {}) };
 
@@ -181,7 +196,7 @@ async function callGateioAPI(method, pathWithQuery, body = {}, auth = true) {
       const sign = hmacSign(GATEIO_API_SECRET, payload);
       headers['KEY'] = GATEIO_API_KEY;
       headers['Timestamp'] = tsString;
-      headers['SIGN'] = sign;
+      headers['SIGN'] = sign; // 반드시 대문자
     }
     const resp = await fetch(url, { ...common, headers, ...withBody });
     const text = await resp.text();
@@ -210,8 +225,9 @@ async function callGateioAPI(method, pathWithQuery, body = {}, auth = true) {
   return data;
 }
 
+// ===== 도메인 로직 =====
 async function fetchMarkPrice(symbol) {
-  const arr = await callGateioAPI('GET', `/api/v4/futures/usdt/tickers?contract=${encodeURIComponent(symbol)}`, {}, false);
+  const arr = await callGateioAPI('GET', `/api/v4/futures/usdt/tickers?contract=${encodeURIComponent(symbol)}`, {}, 'futures', false);
   const obj = Array.isArray(arr)?arr[0]:arr;
   const mp = Number(obj?.mark_price || obj?.last || obj?.last_price || 0);
   if (!mp || !isFinite(mp)) throw new Error('mark price unavailable');
@@ -223,15 +239,144 @@ async function usdtToContracts(symbol, usdtAmount, lev) {
   return Math.max(1, Math.floor(nominal / price));
 }
 async function setLeverage(symbol, leverage) {
-  await callGateioAPI('POST','/api/v4/futures/usdt/positions/leverage',{ contract:symbol, leverage:String(leverage), cross_leverage_limit:'0' });
+  await callGateioAPI('POST','/api/v4/futures/usdt/positions/leverage',{ contract:symbol, leverage:String(leverage), cross_leverage_limit:'0' },'futures', true);
 }
 async function placeOpenOrder(symbol, sideLongShort, contracts) {
   const sideWord = sideLongShort === 'short' ? 'sell' : 'buy';
   const orderData = { contract:symbol, side:sideWord, size:String(Math.max(1, Number(contracts))), price:'0', tif:'ioc', text:'webhook_order' };
-  return await callGateioAPI('POST','/api/v4/futures/usdt/orders',orderData);
+  return await callGateioAPI('POST','/api/v4/futures/usdt/orders',orderData,'futures', true);
 }
 async function closePosition(symbol) {
-  return await callGateioAPI('POST','/api/v4/futures/usdt/positions/close',{ contract:symbol });
+  return await callGateioAPI('POST','/api/v4/futures/usdt/positions/close',{ contract:symbol },'futures', true);
+}
+
+// ===== 계정 조회 (Futures/Spot/Margin/Options) =====
+async function getFuturesAccountInfo() {
+  try {
+    const acc = await callGateioAPI('GET','/api/v4/futures/usdt/accounts',{},'futures', true);
+    return {
+      total: parseFloat(acc.total || 0),
+      available: parseFloat(acc.available || 0),
+      positionMargin: parseFloat(acc.position_margin || 0),
+      orderMargin: parseFloat(acc.order_margin || 0),
+      unrealisedPnl: parseFloat(acc.unrealised_pnl || 0),
+      currency: acc.currency || 'USDT'
+    };
+  } catch (e) {
+    if (/please transfer funds/i.test(e.message)) {
+      // 계정은 유효하나 잔고 0
+      return { total:0, available:0, positionMargin:0, orderMargin:0, unrealisedPnl:0, currency:'USDT' };
+    }
+    throw e;
+  }
+}
+async function getSpotBalances() {
+  try {
+    const arr = await callGateioAPI('GET','/api/v4/spot/accounts',{},'spot', true);
+    // 잔고 > 0 만
+    return (arr||[])
+      .map(b => ({
+        currency: b.currency,
+        available: parseFloat(b.available || 0),
+        locked: parseFloat(b.locked || 0),
+        total: parseFloat(b.available || 0) + parseFloat(b.locked || 0)
+      }))
+      .filter(b => b.total > 0);
+  } catch {
+    return [];
+  }
+}
+async function getMarginBalances() {
+  try {
+    const accounts = await callGateioAPI('GET','/api/v4/margin/accounts',{},'spot', true);
+    return (accounts||[]).filter(acc => {
+      const total = parseFloat(acc.base?.total || 0) + parseFloat(acc.quote?.total || 0);
+      return total > 0;
+    }).map(acc => ({
+      currencyPair: acc.currency_pair,
+      base: {
+        currency: acc.base?.currency || '',
+        available: parseFloat(acc.base?.available || 0),
+        locked: parseFloat(acc.base?.locked || 0),
+        borrowed: parseFloat(acc.base?.borrowed || 0),
+        interest: parseFloat(acc.base?.interest || 0)
+      },
+      quote: {
+        currency: acc.quote?.currency || '',
+        available: parseFloat(acc.quote?.available || 0),
+        locked: parseFloat(acc.quote?.locked || 0),
+        borrowed: parseFloat(acc.quote?.borrowed || 0),
+        interest: parseFloat(acc.quote?.interest || 0)
+      },
+      risk: parseFloat(acc.risk || 0)
+    }));
+  } catch {
+    return [];
+  }
+}
+async function getOptionsAccountInfo() {
+  try {
+    const account = await callGateioAPI('GET','/api/v4/options/accounts',{},'spot', true);
+    return {
+      total: parseFloat(account.total || 0),
+      available: parseFloat(account.available || 0),
+      positionValue: parseFloat(account.position_value || 0),
+      orderMargin: parseFloat(account.order_margin || 0),
+      unrealisedPnl: parseFloat(account.unrealised_pnl || 0)
+    };
+  } catch {
+    return null;
+  }
+}
+async function getAllAccountInfo() {
+  const [futures, spot, margin, options] = await Promise.allSettled([
+    getFuturesAccountInfo(),
+    getSpotBalances(),
+    getMarginBalances(),
+    getOptionsAccountInfo()
+  ]);
+  const result = {
+    futures: futures.status === 'fulfilled' ? futures.value : null,
+    spot: spot.status === 'fulfilled' ? spot.value : [],
+    margin: margin.status === 'fulfilled' ? margin.value : [],
+    options: options.status === 'fulfilled' ? options.value : null
+  };
+  let totalEstimatedValue = 0;
+  if (result.futures) totalEstimatedValue += result.futures.total;
+  result.spot.forEach(b => { if (b.currency === 'USDT') totalEstimatedValue += b.total; });
+  result.margin.forEach(m => {
+    if (m.quote && m.quote.currency === 'USDT') {
+      const net = m.quote.available - m.quote.borrowed;
+      if (net > 0) totalEstimatedValue += net;
+    }
+  });
+  if (result.options) totalEstimatedValue += result.options.total;
+  result.totalEstimatedValue = totalEstimatedValue;
+  return result;
+}
+
+// ===== 포지션 조회 =====
+async function getPositions() {
+  try {
+    const positions = await callGateioAPI('GET','/api/v4/futures/usdt/positions',{},'futures', true);
+    return (positions||[])
+      .filter(p => parseFloat(p.size) !== 0)
+      .map(p => ({
+        contract: p.contract,
+        size: parseFloat(p.size),
+        side: parseFloat(p.size) > 0 ? 'long' : 'short',
+        leverage: p.leverage,
+        margin: parseFloat(p.margin),
+        pnl: parseFloat(p.unrealised_pnl || 0),
+        pnlPercentage: parseFloat(p.unrealised_pnl_percentage || 0),
+        entryPrice: parseFloat(p.entry_price || 0),
+        markPrice: parseFloat(p.mark_price || 0),
+        marginMode: p.mode,
+        adlRanking: p.adl_ranking
+      }));
+  } catch {
+    return [];
+  }
 }
 
 // ===== 서버 =====
@@ -247,39 +392,14 @@ const server = createServer(async (req, res) => {
   try {
     // ---------- API ----------
     if (pathname.startsWith('/api/')) {
+
+      // 헬스
       if (pathname === '/api/health' && req.method === 'GET') {
         return sendJSON(res, 200, {
           ok:true, gateio: GATEIO_TESTNET ? 'testnet' : 'mainnet',
           apiConfigured: !!(GATEIO_API_KEY && GATEIO_API_SECRET),
           autoTrading, investmentAmountUSDT, defaultLeverage, ts: new Date().toISOString()
         });
-      }
-
-      // 연결 (키/시크릿/네트워크 유연 파싱)
-      if (pathname === '/api/connect' && req.method === 'POST') {
-        const b = await parseBody(req);
-        const apiKey = String(b.apiKey || b.key || '').trim();
-        const apiSecret = String(b.apiSecret || b.secret || '').trim();
-        const networkRaw = (b.network || '').toString().toLowerCase();
-        const isTestnet = typeof b.isTestnet !== 'undefined' ? !!b.isTestnet
-          : typeof b.testnet !== 'undefined' ? !!b.testnet
-          : (networkRaw ? networkRaw === 'testnet' : GATEIO_TESTNET);
-
-        if (!apiKey || !apiSecret) return sendJSON(res, 400, { ok:false, error:'missing key/secret' });
-
-        GATEIO_API_KEY = apiKey; GATEIO_API_SECRET = apiSecret; GATEIO_TESTNET = !!isTestnet;
-
-        // 최초 한 번 시각 동기화
-        await syncGateTime();
-
-        try {
-          await callGateioAPI('GET','/api/v4/futures/usdt/accounts',{},true);
-          logMultiple('✅ API 연결 성공', { network: GATEIO_TESTNET ? 'testnet' : 'mainnet' });
-          return sendJSON(res, 200, { ok:true, network: GATEIO_TESTNET ? 'testnet' : 'mainnet' });
-        } catch (e) {
-          logMultiple('❌ API 연결 실패', { error: (e && e.message) || String(e) });
-          return sendJSON(res, 400, { ok:false, error: (e && e.message) || 'connect failed' });
-        }
       }
 
       // 설정 저장(USDT/레버리지/오토)
@@ -292,21 +412,88 @@ const server = createServer(async (req, res) => {
         return sendJSON(res, 200, { ok:true, saved:{ autoTrading, investmentAmountUSDT, defaultLeverage } });
       }
 
-      // 로그/포지션
-      if ((pathname === '/api/logs' || /^\/api\/logs[\w\-\!\.]*$/.test(pathname)) && req.method === 'GET') {
-        return sendJSON(res, 200, { logs: logs.slice(-200) });
-      }
-      if (pathname === '/api/positions' && req.method === 'GET') {
+      // 연결 (키/시크릿/네트워크 유연 파싱) — 연결과 동시에 계정/포지션 리턴
+      if (pathname === '/api/connect' && req.method === 'POST') {
+        const b = await parseBody(req);
+        const apiKey = String(b.apiKey || b.key || '').trim();
+        const apiSecret = String(b.apiSecret || b.secret || '').trim();
+        const networkRaw = (b.network || '').toString().toLowerCase();
+        const isTestnet = typeof b.isTestnet !== 'undefined' ? !!b.isTestnet
+          : typeof b.testnet !== 'undefined' ? !!b.testnet
+          : (networkRaw ? networkRaw === 'testnet' : GATEIO_TESTNET);
+
+        if (!apiKey || !apiSecret) return sendJSON(res, 400, { ok:false, message:'API credentials required' });
+
+        GATEIO_API_KEY = apiKey; GATEIO_API_SECRET = apiSecret; GATEIO_TESTNET = !!isTestnet;
+        isConnected = true;
+
+        // 최초 한 번 시각 동기화
+        await syncGateTime();
+
         try {
-          if (!GATEIO_API_KEY || !GATEIO_API_SECRET) return sendJSON(res, 200, { positions: [] });
-          const data = await callGateioAPI('GET','/api/v4/futures/usdt/positions',{},true);
-          return sendJSON(res, 200, { positions: data || [] });
-        } catch {
-          return sendJSON(res, 200, { positions: [] });
+          const accounts = await getAllAccountInfo();
+          const positions = await getPositions();
+          logMultiple('✅ API 연결 성공', {
+            network: GATEIO_TESTNET ? 'testnet' : 'mainnet',
+            estTotal: `${accounts.totalEstimatedValue.toFixed(2)} USDT`,
+            positions: positions.length
+          });
+          return sendJSON(res, 200, {
+            ok:true, message:'API 연결 성공',
+            network: GATEIO_TESTNET ? 'testnet' : 'mainnet',
+            accounts, positions
+          });
+        } catch (error) {
+          // 자금 없음 등은 연결 성공 처리 + 안내
+          if (/please transfer funds/i.test(error.message) || /insufficient|not enough/i.test(error.message)) {
+            const empty = { futures:{ total:0, available:0, positionMargin:0, orderMargin:0, unrealisedPnl:0, currency:'USDT' },
+                            spot:[], margin:[], options:null, totalEstimatedValue:0 };
+            logMultiple('✅ API 연결 성공(선물 자금 없음)', { network: GATEIO_TESTNET ? 'testnet' : 'mainnet' });
+            return sendJSON(res, 200, {
+              ok:true, message:'API 연결 성공',
+              network: GATEIO_TESTNET ? 'testnet' : 'mainnet',
+              accounts: empty, positions: [],
+              warning: '선물 계정에 자금이 없습니다. 현물→선물로 자금을 이체해주세요.'
+            });
+          }
+          isConnected = false;
+          logMultiple('❌ API 연결 실패', { error: error.message });
+          return sendJSON(res, 200, { ok:false, message:'API 키가 잘못되었습니다', error: error.message });
         }
       }
 
-      // 신호 조회
+      // 전체 계정 조회
+      if (pathname === '/api/accounts/all' && req.method === 'GET') {
+        try {
+          const accounts = await getAllAccountInfo();
+          return sendJSON(res, 200, accounts);
+        } catch (error) {
+          return sendJSON(res, 500, { error: error.message });
+        }
+      }
+
+      // 포지션 조회
+      if (pathname === '/api/positions' && req.method === 'GET') {
+        try {
+          const positions = await getPositions();
+          return sendJSON(res, 200, { positions });
+        } catch (error) {
+          return sendJSON(res, 500, { error: error.message });
+        }
+      }
+
+      // 포지션 전체 청산(마켓)
+      if (pathname === '/api/positions/close' && req.method === 'POST') {
+        const body = await parseBody(req);
+        try {
+          const result = await closePosition(String(body.contract || body.symbol || ''));
+          return sendJSON(res, 200, { ok:true, result });
+        } catch (error) {
+          return sendJSON(res, 500, { ok:false, error: error.message });
+        }
+      }
+
+      // 웹훅 신호 로그 조회
       if (pathname === '/api/webhook/signals' && req.method === 'GET') {
         const id = (query.id && String(query.id)) || 'default';
         const arr = webhookSignals[id] || [];
@@ -382,7 +569,7 @@ const server = createServer(async (req, res) => {
     let fp = pathname === '/' ? join(DIST_DIR, 'index.html') : join(DIST_DIR, pathname);
     if (!existsSync(fp)) fp = join(DIST_DIR, 'index.html');
     if (!existsSync(fp)) { res.writeHead(404, { 'Content-Type':'text/plain; charset=utf-8' }); res.end('File not found'); return; }
-    const ct = contentTypeByExt(fp);
+    const ct = mime[extname(fp)] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': ct });
     res.end(readFileSync(fp));
   } catch (e) {
@@ -392,6 +579,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   logMultiple('🚀 서버 시작', { port: PORT, apiConfigured: !!(GATEIO_API_KEY && GATEIO_API_SECRET), network: GATEIO_TESTNET ? 'testnet' : 'mainnet' });
 });
+
+// 종료 처리
+process.on('SIGTERM', () => { logMultiple('서버 종료 중 (SIGTERM)'); server.close(() => process.exit(0)); });
+process.on('SIGINT', () => { logMultiple('서버 종료 중 (SIGINT)'); server.close(() => process.exit(0)); });
