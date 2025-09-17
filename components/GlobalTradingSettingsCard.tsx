@@ -40,63 +40,63 @@ const i18n: Record<Lang, Record<string, string>> = {
 
   ko: {
 
-    title: '?? ??',
+    title: '웹훅 신호',
 
-    none: '?? ??? ??? ????.',
+    none: '아직 수신된 신호가 없습니다.',
 
-    save: '?? ??',
+    save: '즉시 적용',
 
-    syncing: '??? ?...',
+    syncing: '동기화 중...',
 
-    auto: '????',
+    auto: '自動取引',
 
-    refreshing: '??? ???? ?...',
+    refreshing: '데이터 새로고침 중...',
 
-    autoR: '?? ??',
+    autoR: '자동 갱신',
 
-    summary: '??? ??',
+    summary: '코인별 요약',
 
-    lastSignals: '?? 5? ??',
+    lastSignals: '최근 5개 신호',
 
-    totalSignals: '?? ??',
+    totalSignals: '누적 신호',
 
-    distinctSymbols: '?? ?? ?',
+    distinctSymbols: '거래 코인 수',
 
-    lastUpdated: '??? ??',
+    lastUpdated: '마지막 갱신',
 
-    autoDisabled: '????? ?? ?? ??? ?????.',
+    autoDisabled: '자동거래가 꺼져 있어 신호만 저장됩니다.',
 
-    autoEnabled: '????? ????? ????.',
+    autoEnabled: '자동거래가 활성화되어 있습니다.',
 
-    tableTitle: '?? ?? ????',
+    tableTitle: '최근 신호 타임라인',
 
-    columnTime: '??',
+    columnTime: '時間',
 
-    columnSymbol: '??',
+    columnSymbol: '심볼',
 
-    columnAction: '??',
+    columnAction: '액션',
 
-    columnSide: '??',
+    columnSide: '方向',
 
-    columnSize: '???',
+    columnSize: '계약수',
 
-    columnLeverage: '????',
+    columnLeverage: '레버리지',
 
-    columnStatus: '??',
+    columnStatus: '상태',
 
-    sizeLabel: '???',
+    sizeLabel: '계약수',
 
-    leverageLabel: '????',
+    leverageLabel: '레버리지',
 
-    sideLabel: '??',
+    sideLabel: '方向',
 
-    actionLabel: '??',
+    actionLabel: '액션',
 
-    webhookId: '?? ID',
+    webhookId: '웹훅 ID',
 
-    autoRefreshEvery: '?? ??',
+    autoRefreshEvery: '갱신 주기',
 
-    symbolUnknown: '???'
+    symbolUnknown: '未設定'
 
   },
 
@@ -164,63 +164,63 @@ const i18n: Record<Lang, Record<string, string>> = {
 
   ja: {
 
-    title: 'Webhook ????',
+    title: 'Webhook シグナル',
 
-    none: '?????????????????',
+    none: 'まだシグナルは受信されていません。',
 
-    save: '????',
+    save: 'すぐ反映',
 
-    syncing: '???...',
+    syncing: '同期中...',
 
-    auto: '????',
+    auto: '自動取引',
 
-    refreshing: '???...',
+    refreshing: '更新中...',
 
-    autoR: '????',
+    autoR: '自動更新',
 
-    summary: '??????',
+    summary: '銘柄サマリー',
 
-    lastSignals: '??5??????',
+    lastSignals: '直近5件のシグナル',
 
-    totalSignals: '??????',
+    totalSignals: '累計シグナル',
 
-    distinctSymbols: '?????',
+    distinctSymbols: '対象銘柄数',
 
-    lastUpdated: '????',
+    lastUpdated: '最終更新',
 
-    autoDisabled: '???????????????????????',
+    autoDisabled: '自動取引が無効のためシグナルのみ保存されます。',
 
-    autoEnabled: '??????????',
+    autoEnabled: '自動取引が有効です。',
 
-    tableTitle: '????????????',
+    tableTitle: '直近シグナルタイムライン',
 
-    columnTime: '??',
+    columnTime: '時間',
 
-    columnSymbol: '????',
+    columnSymbol: 'シンボル',
 
-    columnAction: '?????',
+    columnAction: 'アクション',
 
-    columnSide: '??',
+    columnSide: '方向',
 
-    columnSize: '??',
+    columnSize: '数量',
 
-    columnLeverage: '?????',
+    columnLeverage: 'レバレッジ',
 
-    columnStatus: '?????',
+    columnStatus: 'ステータス',
 
-    sizeLabel: '??',
+    sizeLabel: '数量',
 
-    leverageLabel: '?????',
+    leverageLabel: 'レバレッジ',
 
-    sideLabel: '??',
+    sideLabel: '方向',
 
-    actionLabel: '?????',
+    actionLabel: 'アクション',
 
     webhookId: 'Webhook ID',
 
-    autoRefreshEvery: '????',
+    autoRefreshEvery: '更新間隔',
 
-    symbolUnknown: '???'
+    symbolUnknown: '未設定'
 
   }
 
@@ -232,19 +232,19 @@ const STATUS_LABELS: Record<Lang, Record<SignalStatus, string>> = {
 
   ko: {
 
-    executed: '??',
+    executed: '체결',
 
-    failed: '??',
+    failed: '실패',
 
-    stored: '??',
+    stored: '대기',
 
-    pending: '??',
+    pending: '대기',
 
-    invalid: '??',
+    invalid: '무효',
 
-    disabled: '?? OFF',
+    disabled: '자동 OFF',
 
-    no_api: 'API ??'
+    no_api: 'API 없음'
 
   },
 
@@ -268,19 +268,19 @@ const STATUS_LABELS: Record<Lang, Record<SignalStatus, string>> = {
 
   ja: {
 
-    executed: '??',
+    executed: '체결',
 
-    failed: '??',
+    failed: '실패',
 
-    stored: '??',
+    stored: '대기',
 
-    pending: '??',
+    pending: '대기',
 
-    invalid: '??',
+    invalid: '무효',
 
-    disabled: '??OFF',
+    disabled: '自動OFF',
 
-    no_api: 'API???'
+    no_api: 'API未設定'
 
   }
 
@@ -290,11 +290,11 @@ const STATUS_LABELS: Record<Lang, Record<SignalStatus, string>> = {
 
 const ACTION_LABELS: Record<Lang, Record<'open' | 'close', string>> = {
 
-  ko: { open: '??', close: '??' },
+  ko: { open: '진입', close: '청산' },
 
   en: { open: 'Open', close: 'Close' },
 
-  ja: { open: '?????', close: '????' }
+  ja: { open: 'エントリー', close: 'クローズ' }
 
 };
 
@@ -302,11 +302,11 @@ const ACTION_LABELS: Record<Lang, Record<'open' | 'close', string>> = {
 
 const SIDE_LABELS: Record<Lang, Record<'long' | 'short', string>> = {
 
-  ko: { long: '?', short: '?' },
+  ko: { long: '롱', short: '숏' },
 
   en: { long: 'Long', short: 'Short' },
 
-  ja: { long: '???', short: '????' }
+  ja: { long: 'ロング', short: 'ショート' }
 
 };
 
