@@ -47,7 +47,7 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
       {
         title: '실시간 신호 활용',
         description:
-          '관리자 페이지 대표 웹훅으로 전달된 신호는 자동으로 브로드캐스트되며, 실시간 신호 카드에는 내가 선택해 승인받은 전략 신호만 노출됩니다.'
+          '관리자 페이지 대표 웹훅으로 전달된 신호는 접속 여부와 관계없이 자동으로 브로드캐스트되며, 실시간 신호 카드에는 내가 선택해 승인받은 전략 신호만 노출됩니다.'
       }
     ],
     highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.',
@@ -86,7 +86,7 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
       {
         title: 'Use Live Signals',
         description:
-          'Signals sent through the admin console’s master webhook are broadcast automatically. The live signal card only shows the strategies you opted into so you can react quickly.'
+          'Signals sent through the admin console’s master webhook are broadcast automatically, even if you are not connected. The live signal card only shows the strategies you opted into so you can react quickly.'
       }
     ],
     highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.',
@@ -125,7 +125,7 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
       {
         title: 'ライブシグナルを活用',
         description:
-          '管理者コンソールの代表Webhookに届いたシグナルは自動で配信されます。ライブシグナルカードでは自分が選んだ戦略の情報だけを確認できます。'
+          '管理者コンソールの代表Webhookに届いたシグナルは、ログインしていなくても自動で配信されます。ライブシグナルカードでは自分が選んだ戦略の情報だけを確認できます。'
       }
     ],
     highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。',

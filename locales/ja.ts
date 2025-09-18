@@ -102,7 +102,8 @@ export const ja = {
   
   // Webhook
   webhookSettings: "シグナル購読案内",
-  webhookBroadcastInfo: "管理コンソールで生成した代表Webhookに届いたシグナルは、購読した戦略だけが自動的に会員へ配信されます。個別のWebhook URLを作成する必要はありません。",
+  webhookBroadcastInfo:
+    "管理コンソールで生成した代表Webhookに届いたシグナルは、ログインしていなくても購読した戦略だけが自動的に会員へ配信されます。個別のWebhook URLを作成する必要はありません。",
   webhookPendingNotice: "承認が完了すると選択した戦略のシグナルが自動で届きます。",
   webhookLoginRequired: "UIDで認証してください。",
   webhookApprovedNotice: "承認済みです。選択した戦略のシグナルが自動配信されます。",

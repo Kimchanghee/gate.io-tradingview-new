@@ -102,7 +102,8 @@ export const en = {
   
   // Webhook
   webhookSettings: "Signal Subscription",
-  webhookBroadcastInfo: "Signals received by the admin console's master webhook are delivered automatically to each member and only include the strategies they subscribed to. There's no need to create your own webhook URL.",
+  webhookBroadcastInfo:
+    "Signals received by the admin console's master webhook are delivered automatically to each member, even if they are offline, and only include the strategies they subscribed to. There's no need to create your own webhook URL.",
   webhookPendingNotice: "Once you're approved, the strategies you chose will start delivering automatically.",
   webhookLoginRequired: "Please authenticate with your UID.",
   webhookApprovedNotice: "Approval complete. Signals for your chosen strategies now stream automatically.",
