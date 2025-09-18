@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Card from './Card';
 
 interface SignalItem {
@@ -16,8 +16,18 @@ interface SignalItem {
 const SignalFeedCard: React.FC = () => {
   const [signals, setSignals] = useState<SignalItem[]>([]);
   const [error, setError] = useState('');
-  const uid = useMemo(() => localStorage.getItem('user_uid') || '', []);
-  const accessKey = useMemo(() => localStorage.getItem('user_access_key') || '', []);
+  const [uid, setUid] = useState('');
+  const [accessKey, setAccessKey] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      setUid(window.localStorage.getItem('user_uid') || '');
+      setAccessKey(window.localStorage.getItem('user_access_key') || '');
+    } catch (err) {
+      console.error('Failed to read user storage for signal feed', err);
+    }
+  }, []);
 
   useEffect(() => {
     if (!uid || !accessKey) return;

@@ -15,14 +15,26 @@ interface UserStatusResponse {
   accessKey?: string;
 }
 
+const readLocalStorage = (key: string): string => {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(key) || '';
+  } catch (err) {
+    console.error(`Failed to read ${key} from storage`, err);
+    return '';
+  }
+};
+
 const RegistrationCard: React.FC = () => {
-  const [uid, setUid] = useState(() => localStorage.getItem('user_uid') || '');
+  const [uid, setUid] = useState(() => readLocalStorage('user_uid'));
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selected, setSelected] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
     try {
-      const raw = localStorage.getItem('user_requested_strategies');
+      const raw = window.localStorage.getItem('user_requested_strategies');
       return raw ? JSON.parse(raw) : [];
-    } catch {
+    } catch (err) {
+      console.error('Failed to read requested strategies from storage', err);
       return [];
     }
   });
@@ -60,7 +72,13 @@ const RegistrationCard: React.FC = () => {
         if (!stopped) {
           setStatusInfo(data);
           if (data.status === 'approved' && data.accessKey) {
-            localStorage.setItem('user_access_key', data.accessKey);
+            if (typeof window !== 'undefined') {
+              try {
+                window.localStorage.setItem('user_access_key', data.accessKey);
+              } catch (err) {
+                console.error('Failed to persist user access key', err);
+              }
+            }
           }
         }
       } catch (err) {
@@ -76,13 +94,21 @@ const RegistrationCard: React.FC = () => {
   }, [uid]);
 
   useEffect(() => {
-    if (uid) {
-      localStorage.setItem('user_uid', uid);
+    if (!uid || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('user_uid', uid);
+    } catch (err) {
+      console.error('Failed to persist user uid', err);
     }
   }, [uid]);
 
   useEffect(() => {
-    localStorage.setItem('user_requested_strategies', JSON.stringify(selected));
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('user_requested_strategies', JSON.stringify(selected));
+    } catch (err) {
+      console.error('Failed to persist requested strategies', err);
+    }
   }, [selected]);
 
   const submitRegistration = async (e: React.FormEvent) => {
