@@ -147,7 +147,7 @@ const UsageGuide: React.FC = () => {
       <div className="space-y-6">
         <p className="text-sm leading-relaxed text-gray-200">{content.intro}</p>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-4">
           {content.steps.map((step, index) => (
             <div
               key={step.title}

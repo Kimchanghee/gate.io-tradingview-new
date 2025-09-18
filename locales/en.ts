@@ -169,6 +169,7 @@ export const en = {
   approvedStrategiesLabel: "Approved strategies",
   accessKeyLabel: "Access key",
   uidAuthRequired: "Please authenticate with your UID.",
+  uidApprovalRequiredForApi: "API connections become available after your UID is approved.",
 
   // Signal guidance
   signalFeedTitle: "Live Strategy Signals",

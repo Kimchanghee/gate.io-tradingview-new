@@ -104,7 +104,7 @@ export const ko = {
   webhookSettings: "신호 구독 안내",
   webhookBroadcastInfo: "관리자 페이지에서 대표 웹훅으로 받은 신호는 회원별로 자동 전달되며, 내가 선택한 전략만 수신됩니다. 별도의 웹훅 주소를 만들 필요가 없습니다.",
   webhookPendingNotice: "승인이 완료되면 선택한 전략 신호가 자동으로 전달됩니다.",
-  webhookLoginRequired: "UID로 인증 해주세요.",
+  webhookLoginRequired: "UID로 인증해주세요.",
   webhookApprovedNotice: "승인이 완료되어 선택한 전략의 신호가 자동으로 수신됩니다.",
   webhookStrategiesTitle: "구독 중인 전략",
   webhookNoStrategies: "아직 승인된 전략이 없습니다.",
@@ -168,7 +168,8 @@ export const ko = {
   requestedStrategiesLabel: "요청한 전략",
   approvedStrategiesLabel: "승인된 전략",
   accessKeyLabel: "접근 키",
-  uidAuthRequired: "UID로 인증 해주세요.",
+  uidAuthRequired: "UID로 인증해주세요.",
+  uidApprovalRequiredForApi: "UID 승인이 완료되면 API를 연결할 수 있습니다.",
 
   // 신호 안내
   signalFeedTitle: "실시간 전략 신호",

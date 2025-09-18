@@ -587,6 +587,11 @@ const AdminApp: React.FC = () => {
       <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
         <div className="max-w-md mx-auto">
           <Card title="관리자 로그인">
+            <div className="space-y-2 text-sm text-gray-300 mb-4">
+              <p>1) 브라우저 주소창 끝에 <span className="font-mono text-xs bg-black/40 px-1 py-0.5 rounded">/admin</span> 을 입력해 관리자 페이지에 접속합니다.</p>
+              <p>2) 백엔드 환경 변수 <span className="font-mono text-xs bg-black/40 px-1 py-0.5 rounded">ADMIN_SECRET</span> 값과 동일한 토큰을 준비합니다.</p>
+              <p>3) 아래 입력란에 토큰을 넣고 로그인하면 UID 승인·거절 및 신호 브로드캐스트 기능을 사용할 수 있습니다.</p>
+            </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm mb-1">관리자 토큰</label>

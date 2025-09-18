@@ -169,6 +169,7 @@ export const ja = {
   approvedStrategiesLabel: "承認された戦略",
   accessKeyLabel: "アクセスキー",
   uidAuthRequired: "UIDで認証してください。",
+  uidApprovalRequiredForApi: "UIDの承認が完了するとAPIを接続できます。",
 
   // シグナル案内
   signalFeedTitle: "ライブ戦略シグナル",
