@@ -101,21 +101,14 @@ export const ja = {
   inactive: "非アクティブ",
   
   // Webhook
-  webhookSettings: "Webhook設定",
-  webhookDescription: "JSON信号を送信して自動的に取引を実行します",
-  webhookUrlDesc: "TradingViewアラートで使用するURL：",
-  webhookStatus: "ステータス：",
-  activated: "有効",
-  deactivated: "無効",
-  copy: "コピー",
-  copied: "コピーしました！",
-  startWebhook: "サーバーを起動",
-  stopWebhook: "サーバーを停止",
-  webhookStarted: "Webhookサーバーが起動しました",
-  webhookStopped: "Webhookサーバーが停止しました",
-  webhookJsonExample: "TradingViewアラートJSON例：",
-  webhookHint: "TradingViewでアラートを作成 → Webhook URLを入力 → JSONメッセージを設定",
-  urlCopied: "URLがコピーされました",
+  webhookSettings: "シグナル購読案内",
+  webhookBroadcastInfo: "管理コンソールで生成した代表Webhookに届いたシグナルが自動的に会員へ配信されます。個別のWebhook URLを作成する必要はありません。",
+  webhookPendingNotice: "承認が完了すると選択した戦略のシグナルが自動で届きます。",
+  webhookLoginRequired: "UIDで認証してください。",
+  webhookApprovedNotice: "承認済みです。選択した戦略のシグナルが自動配信されます。",
+  webhookStrategiesTitle: "購読中の戦略",
+  webhookNoStrategies: "承認済みの戦略がまだありません。",
+  webhookSelectionReminder: "購読内容を変更したい場合はUID登録カードで選択を更新してください。",
   
   // ログ
   realtimeLogs: "リアルタイムログ",
@@ -174,15 +167,9 @@ export const ja = {
   requestedStrategiesLabel: "申請した戦略",
   approvedStrategiesLabel: "承認された戦略",
   accessKeyLabel: "アクセスキー",
-  uidAuthRequired: "UID認証を完了してください。",
+  uidAuthRequired: "UIDで認証してください。",
 
-  // Webhook とシグナル
-  webhookIndicatorHint: "個人用Webhookは選択した戦略だけを配信します。TradingViewでそのままご利用ください。",
-  webhookPendingNotice: "承認が完了すると専用のWebhook URLが有効になります。",
-  webhookLoginRequired: "UIDログインと管理者承認後にWebhookを利用できます。",
-  webhookStrategiesTitle: "購読中の戦略",
-  webhookNoStrategies: "承認済みの戦略がまだありません。",
-
+  // シグナル案内
   signalFeedTitle: "ライブ戦略シグナル",
   signalLoginRequired: "UIDでログインするとリアルタイムのシグナルを確認できます。",
   signalPendingMessage: "管理者の承認待ちです。承認後にシグナルが表示されます。",

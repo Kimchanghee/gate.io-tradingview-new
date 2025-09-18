@@ -101,21 +101,14 @@ export const ko = {
   inactive: "비활성",
   
   // 웹훅
-  webhookSettings: "웹훅 설정",
-  webhookDescription: "JSON 신호를 전송해 자동으로 거래를 실행합니다",
-  webhookUrlDesc: "TradingView 알림에서 사용할 URL:",
-  webhookStatus: "상태:",
-  activated: "활성화됨",
-  deactivated: "비활성화됨",
-  copy: "복사",
-  copied: "복사됨!",
-  startWebhook: "서버 시작",
-  stopWebhook: "서버 중지",
-  webhookStarted: "웹훅 서버가 시작되었습니다",
-  webhookStopped: "웹훅 서버가 중지되었습니다",
-  webhookJsonExample: "TradingView 알림 JSON 예시:",
-  webhookHint: "TradingView에서 알림 생성 → Webhook URL 입력 → JSON 메시지 설정",
-  urlCopied: "URL이 복사되었습니다",
+  webhookSettings: "신호 구독 안내",
+  webhookBroadcastInfo: "관리자 페이지에서 생성한 대표 웹훅으로 들어온 신호가 자동으로 회원들에게 전달됩니다. 별도의 웹훅 주소를 만들 필요가 없습니다.",
+  webhookPendingNotice: "승인이 완료되면 선택한 전략 신호가 자동으로 전달됩니다.",
+  webhookLoginRequired: "UID로 인증 해주세요.",
+  webhookApprovedNotice: "승인이 완료되어 선택한 전략의 신호가 자동으로 수신됩니다.",
+  webhookStrategiesTitle: "구독 중인 전략",
+  webhookNoStrategies: "아직 승인된 전략이 없습니다.",
+  webhookSelectionReminder: "전략 변경이 필요하면 위의 UID 등록 카드에서 선택을 수정해 주세요.",
   
   // 로그
   realtimeLogs: "실시간 로그",
@@ -174,15 +167,9 @@ export const ko = {
   requestedStrategiesLabel: "요청한 전략",
   approvedStrategiesLabel: "승인된 전략",
   accessKeyLabel: "접근 키",
-  uidAuthRequired: "UID로 인증을 완료해 주세요.",
+  uidAuthRequired: "UID로 인증 해주세요.",
 
-  // 웹훅 및 신호 안내
-  webhookIndicatorHint: "개인 전용 웹훅은 선택한 전략의 신호만 전달되며 TradingView에서 그대로 사용하면 됩니다.",
-  webhookPendingNotice: "승인이 완료되면 전용 웹훅 URL이 활성화됩니다.",
-  webhookLoginRequired: "UID 로그인 후 관리자 승인을 받아야 웹훅을 사용할 수 있습니다.",
-  webhookStrategiesTitle: "구독 중인 전략",
-  webhookNoStrategies: "아직 승인된 전략이 없습니다.",
-
+  // 신호 안내
   signalFeedTitle: "실시간 전략 신호",
   signalLoginRequired: "UID로 로그인하면 실시간 전략 신호를 확인할 수 있습니다.",
   signalPendingMessage: "관리자 승인을 기다리는 중입니다. 승인 후 신호가 표시됩니다.",

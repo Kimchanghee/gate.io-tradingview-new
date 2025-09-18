@@ -43,6 +43,33 @@ interface AdminSignal {
   strategyId?: string;
 }
 
+interface AdminWebhookInfo {
+  url: string;
+  secret?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface BroadcastFormState {
+  strategyId: string;
+  title: string;
+  action: string;
+  side: string;
+  symbol: string;
+  price: string;
+  note: string;
+}
+
+const initialBroadcastForm: BroadcastFormState = {
+  strategyId: '',
+  title: '',
+  action: 'open',
+  side: 'long',
+  symbol: '',
+  price: '',
+  note: ''
+};
+
 const AdminApp: React.FC = () => {
   const [token, setToken] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -65,6 +92,13 @@ const AdminApp: React.FC = () => {
   const [newStrategyDesc, setNewStrategyDesc] = useState('');
   const [selectionMap, setSelectionMap] = useState<Record<string, string[]>>({});
   const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null);
+  const [webhookInfo, setWebhookInfo] = useState<AdminWebhookInfo | null>(null);
+  const [webhookStatus, setWebhookStatus] = useState('');
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookCopied, setWebhookCopied] = useState(false);
+  const [broadcastForm, setBroadcastForm] = useState<BroadcastFormState>(initialBroadcastForm);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
 
   const authorized = useMemo(() => Boolean(token), [token]);
 
@@ -105,6 +139,13 @@ const AdminApp: React.FC = () => {
     setSelectionMap({});
     setSignalStrategy('');
     setOverviewUpdatedAt(null);
+    setWebhookInfo(null);
+    setWebhookStatus('');
+    setWebhookLoading(false);
+    setWebhookCopied(false);
+    setBroadcastForm(initialBroadcastForm);
+    setBroadcastLoading(false);
+    setBroadcastMessage('');
   }, []);
 
   const buildHeaders = useCallback(
@@ -211,15 +252,166 @@ const AdminApp: React.FC = () => {
     [token, buildHeaders, buildAdminUrl, resetAdminState]
   );
 
+  const fetchWebhookInfo = useCallback(
+    async (overrideToken?: string): Promise<AdminWebhookInfo | null> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken) return null;
+      try {
+        setWebhookLoading(true);
+        setWebhookStatus('');
+        const res = await fetch(buildAdminUrl('/webhook'), { headers: buildHeaders(authToken) });
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          resetAdminState();
+          return null;
+        }
+        if (res.status === 404) {
+          setWebhookInfo(null);
+          return null;
+        }
+        if (!res.ok) {
+          setWebhookStatus('대표 웹훅 정보를 불러오지 못했습니다.');
+          return null;
+        }
+        const data: AdminWebhookInfo = await res.json();
+        setWebhookInfo(data);
+        return data;
+      } catch (err) {
+        console.error(err);
+        setWebhookStatus('대표 웹훅 정보를 불러오는 중 오류가 발생했습니다.');
+        return null;
+      } finally {
+        setWebhookLoading(false);
+      }
+    },
+    [token, buildAdminUrl, buildHeaders, resetAdminState]
+  );
+
+  const generateWebhook = useCallback(
+    async () => {
+      if (!token) return;
+      try {
+        setWebhookLoading(true);
+        setWebhookStatus('');
+        const res = await fetch(buildAdminUrl('/webhook'), {
+          method: 'POST',
+          headers: buildHeaders()
+        });
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          resetAdminState();
+          return;
+        }
+        if (!res.ok) {
+          setWebhookStatus('대표 웹훅 생성에 실패했습니다.');
+          return;
+        }
+        const data: AdminWebhookInfo = await res.json();
+        setWebhookInfo(data);
+        setWebhookStatus('대표 웹훅이 새로 발급되었습니다.');
+      } catch (err) {
+        console.error(err);
+        setWebhookStatus('대표 웹훅 생성 중 오류가 발생했습니다.');
+      } finally {
+        setWebhookLoading(false);
+      }
+    },
+    [token, buildAdminUrl, buildHeaders, resetAdminState]
+  );
+
+  const copyWebhookUrl = useCallback(async () => {
+    if (!webhookInfo?.url) return;
+    try {
+      await navigator.clipboard.writeText(webhookInfo.url);
+      setWebhookCopied(true);
+      setWebhookStatus('대표 웹훅 URL을 복사했습니다.');
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setWebhookCopied(false), 1500);
+      }
+    } catch (err) {
+      console.error(err);
+      setWebhookStatus('클립보드로 복사하지 못했습니다.');
+    }
+  }, [webhookInfo?.url]);
+
+  const updateBroadcastField = useCallback(
+    (field: keyof BroadcastFormState, value: string) => {
+      setBroadcastForm((prev) => ({ ...prev, [field]: value }));
+    },
+    []
+  );
+
+  const handleBroadcastStrategyChange = useCallback(
+    (value: string) => {
+      updateBroadcastField('strategyId', value);
+      if (value) {
+        setSignalStrategy(value);
+      }
+    },
+    [updateBroadcastField, setSignalStrategy]
+  );
+
+  const handleBroadcastSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setBroadcastMessage('');
+      if (!broadcastForm.strategyId) {
+        setBroadcastMessage('전송할 전략을 선택해 주세요.');
+        return;
+      }
+      try {
+        setBroadcastLoading(true);
+        const payload: Record<string, unknown> = {
+          strategyId: broadcastForm.strategyId,
+          title: broadcastForm.title || undefined,
+          action: broadcastForm.action || undefined,
+          side: broadcastForm.side || undefined,
+          symbol: broadcastForm.symbol || undefined,
+          note: broadcastForm.note || undefined
+        };
+        if (broadcastForm.price) {
+          const parsed = Number(broadcastForm.price);
+          if (!Number.isNaN(parsed)) {
+            payload.price = parsed;
+          }
+        }
+        const res = await fetch(buildAdminUrl('/signals/broadcast'), {
+          method: 'POST',
+          headers: buildHeaders(),
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          resetAdminState();
+          return;
+        }
+        if (!res.ok) {
+          setBroadcastMessage('신호 전송에 실패했습니다.');
+          return;
+        }
+        setBroadcastMessage('신호가 구독자에게 전송되었습니다.');
+        setBroadcastForm((prev) => ({ ...prev, title: '', symbol: '', price: '', note: '' }));
+        await fetchSignals(broadcastForm.strategyId);
+      } catch (err) {
+        console.error(err);
+        setBroadcastMessage('신호 전송 중 오류가 발생했습니다.');
+      } finally {
+        setBroadcastLoading(false);
+      }
+    },
+    [broadcastForm, buildAdminUrl, buildHeaders, fetchSignals, resetAdminState]
+  );
+
   useEffect(() => {
     if (!token) return;
     fetchOverview();
+    fetchWebhookInfo();
     if (typeof window === 'undefined') return;
     const id = window.setInterval(() => {
       fetchOverview();
     }, 15000);
     return () => window.clearInterval(id);
-  }, [token, fetchOverview]);
+  }, [token, fetchOverview, fetchWebhookInfo]);
 
   useEffect(() => {
     if (token && signalStrategy) {
@@ -228,12 +420,18 @@ const AdminApp: React.FC = () => {
   }, [token, signalStrategy, fetchSignals]);
 
   useEffect(() => {
-    if (!overview?.strategies?.length) return;
-    const exists = overview.strategies.some((s) => s.id === signalStrategy);
-    if (!exists) {
-      setSignalStrategy(overview.strategies[0].id);
+    const strategies = overview?.strategies || [];
+    if (!strategies.length) return;
+    if (!strategies.some((s) => s.id === signalStrategy)) {
+      setSignalStrategy(strategies[0].id);
     }
-  }, [overview, signalStrategy]);
+    setBroadcastForm((prev) => {
+      if (prev.strategyId && strategies.some((s) => s.id === prev.strategyId)) {
+        return prev;
+      }
+      return { ...prev, strategyId: strategies[0].id };
+    });
+  }, [overview?.strategies, signalStrategy]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,6 +449,7 @@ const AdminApp: React.FC = () => {
     }
     setToken(authToken);
     setInputToken('');
+    await fetchWebhookInfo(authToken);
     const latestOverview = await fetchOverview(authToken);
     const strategies = latestOverview?.strategies || overview?.strategies || [];
     if (strategies.length) {
@@ -388,11 +587,6 @@ const AdminApp: React.FC = () => {
       <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
         <div className="max-w-md mx-auto">
           <Card title="관리자 로그인">
-            <div className="bg-black/30 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 space-y-2 mb-4">
-              <p>한국어: 주소창 끝에 <span className="text-gate-primary">/admin</span> 을 입력해 접속한 뒤, 관리자 토큰을 입력하면 대기 중인 UID 신청을 확인하고 승인/거절 및 웹훅 신호를 모니터링할 수 있습니다.</p>
-              <p>English: Add <span className="text-gate-primary">/admin</span> to the URL, sign in with the admin token, then review pending UID requests and broadcast webhook signals to subscribed users.</p>
-              <p>日本語: ブラウザのURL末尾に <span className="text-gate-primary">/admin</span> を追加し、管理者トークンでログインすると、UID申請の承認・却下やWebhookシグナルの配信状況を確認できます。</p>
-            </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm mb-1">관리자 토큰</label>
@@ -463,6 +657,176 @@ const AdminApp: React.FC = () => {
       </div>
 
       {error && <div className="mb-4 text-red-400 text-sm">{error}</div>}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        <Card title="대표 웹훅 관리" className="space-y-4">
+          <p className="text-sm text-gray-300">
+            TradingView 같은 외부 도구에서 이 URL로 신호를 보내면 선택한 회원들에게 자동으로 중계됩니다.
+          </p>
+          {webhookInfo?.url ? (
+            <div className="space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  value={webhookInfo.url}
+                  readOnly
+                  className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-xs font-mono"
+                />
+                <button
+                  onClick={copyWebhookUrl}
+                  disabled={webhookLoading}
+                  className={`px-3 py-2 rounded text-xs font-semibold ${
+                    webhookLoading
+                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      : 'bg-gate-primary text-black hover:bg-green-500 transition'
+                  }`}
+                >
+                  {webhookCopied ? '복사됨' : '복사'}
+                </button>
+              </div>
+              {webhookInfo.updatedAt && (
+                <div className="text-xs text-gray-500">
+                  마지막 갱신: {new Date(webhookInfo.updatedAt).toLocaleString()}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-400 bg-black/30 border border-gray-700 rounded px-3 py-2">
+              아직 대표 웹훅이 생성되지 않았습니다. 아래 버튼으로 생성하세요.
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={generateWebhook}
+              disabled={webhookLoading}
+              className={`px-4 py-2 rounded text-sm font-semibold ${
+                webhookLoading
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gate-primary text-black hover:bg-green-500 transition'
+              }`}
+            >
+              대표 웹훅 생성
+            </button>
+            <button
+              onClick={() => fetchWebhookInfo()}
+              disabled={webhookLoading}
+              className={`px-4 py-2 rounded text-sm border border-gray-600 hover:bg-gray-800 transition ${
+                webhookLoading ? 'opacity-60 cursor-not-allowed' : ''
+              }`}
+            >
+              정보 새로고침
+            </button>
+          </div>
+          {webhookStatus && <div className="text-xs text-gray-300">{webhookStatus}</div>}
+        </Card>
+
+        <Card title="신호 브로드캐스트" className="space-y-4">
+          <p className="text-sm text-gray-300">
+            대표 웹훅에서 수신한 신호를 선택한 전략 구독자에게 전송할 수 있습니다.
+          </p>
+          <form onSubmit={handleBroadcastSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-300 mb-1">대상 전략</label>
+              <select
+                value={broadcastForm.strategyId}
+                onChange={(e) => handleBroadcastStrategyChange(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+              >
+                <option value="">전략을 선택하세요</option>
+                {(overview?.strategies || []).map((strategy) => (
+                  <option key={strategy.id} value={strategy.id}>
+                    {strategy.name} ({strategy.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">신호 제목</label>
+                <input
+                  type="text"
+                  value={broadcastForm.title}
+                  onChange={(e) => updateBroadcastField('title', e.target.value)}
+                  placeholder="예: RSI 진입 신호"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">거래 종목</label>
+                <input
+                  type="text"
+                  value={broadcastForm.symbol}
+                  onChange={(e) => updateBroadcastField('symbol', e.target.value)}
+                  placeholder="예: BTC_USDT"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">포지션 동작</label>
+                <select
+                  value={broadcastForm.action}
+                  onChange={(e) => updateBroadcastField('action', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                >
+                  <option value="open">진입 (open)</option>
+                  <option value="close">청산 (close)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">포지션 방향</label>
+                <select
+                  value={broadcastForm.side}
+                  onChange={(e) => updateBroadcastField('side', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                >
+                  <option value="long">롱 (long)</option>
+                  <option value="short">숏 (short)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">가격 (선택)</label>
+                <input
+                  type="text"
+                  value={broadcastForm.price}
+                  onChange={(e) => updateBroadcastField('price', e.target.value)}
+                  placeholder="예: 67123.5"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">추가 메모</label>
+                <input
+                  type="text"
+                  value={broadcastForm.note}
+                  onChange={(e) => updateBroadcastField('note', e.target.value)}
+                  placeholder="필요 시 간단히 기록"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={broadcastLoading}
+              className={`w-full py-2 rounded text-sm font-semibold ${
+                broadcastLoading
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gate-primary text-black hover:bg-green-500 transition'
+              }`}
+            >
+              신호 전송
+            </button>
+          </form>
+          {broadcastMessage && <div className="text-xs text-gray-300">{broadcastMessage}</div>}
+        </Card>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card title="전략 관리" className="space-y-4">

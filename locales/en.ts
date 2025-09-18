@@ -101,21 +101,14 @@ export const en = {
   inactive: "Inactive",
   
   // Webhook
-  webhookSettings: "Webhook Settings",
-  webhookDescription: "Send JSON signals to execute trades automatically",
-  webhookUrlDesc: "URL to use in TradingView Alert:",
-  webhookStatus: "Status:",
-  activated: "Activated",
-  deactivated: "Deactivated",
-  copy: "Copy",
-  copied: "Copied!",
-  startWebhook: "Start Server",
-  stopWebhook: "Stop Server",
-  webhookStarted: "Webhook server started",
-  webhookStopped: "Webhook server stopped",
-  webhookJsonExample: "TradingView Alert JSON Example:",
-  webhookHint: "Create Alert in TradingView → Enter Webhook URL → Set JSON message",
-  urlCopied: "URL copied",
+  webhookSettings: "Signal Subscription",
+  webhookBroadcastInfo: "Signals received by the admin console's master webhook are automatically delivered to members. There's no need to create your own webhook URL.",
+  webhookPendingNotice: "Once you're approved, the strategies you chose will start delivering automatically.",
+  webhookLoginRequired: "Please authenticate with your UID.",
+  webhookApprovedNotice: "Approval complete. Signals for your chosen strategies now stream automatically.",
+  webhookStrategiesTitle: "Subscribed strategies",
+  webhookNoStrategies: "No approved strategies yet.",
+  webhookSelectionReminder: "Update the selections in the UID registration card whenever you want to change subscriptions.",
   
   // Logs
   realtimeLogs: "Real-time Logs",
@@ -174,15 +167,9 @@ export const en = {
   requestedStrategiesLabel: "Requested strategies",
   approvedStrategiesLabel: "Approved strategies",
   accessKeyLabel: "Access key",
-  uidAuthRequired: "Please complete UID verification first.",
+  uidAuthRequired: "Please authenticate with your UID.",
 
-  // Webhook & signals
-  webhookIndicatorHint: "Your personal webhook only delivers the strategies you selected. Use it directly inside TradingView.",
-  webhookPendingNotice: "Once approved your dedicated webhook URL becomes active.",
-  webhookLoginRequired: "Webhook access is unlocked after logging in with UID and receiving admin approval.",
-  webhookStrategiesTitle: "Subscribed strategies",
-  webhookNoStrategies: "No approved strategies yet.",
-
+  // Signal guidance
   signalFeedTitle: "Live Strategy Signals",
   signalLoginRequired: "Log in with your UID to view live strategy signals.",
   signalPendingMessage: "Waiting for admin approval. Signals will appear when you are approved.",

@@ -14,8 +14,6 @@ interface GuideCopy {
   stepLabel: string;
   steps: GuideStep[];
   highlight: string;
-  adminTitle: string;
-  adminDescription: string;
 }
 
 const GUIDE_CONTENT: Record<Language, GuideCopy> = {
@@ -40,20 +38,17 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           '신청 후 상태가 "승인 대기"로 표시되며, 관리자가 허용하면 승인으로 바뀌고 Access Key와 승인된 전략 목록이 업데이트됩니다. 거절되면 안내 문구를 확인할 수 있습니다.'
       },
       {
-        title: 'API · 웹훅 연결',
+        title: 'API 연결 준비',
         description:
-          'UID 인증 전에는 "API 연결" 버튼과 "웹훅 설정" 영역이 잠겨 있습니다. 승인이 완료되면 버튼이 활성화되고, 승인된 전략만 전용 웹훅 URL과 신호에 포함됩니다.'
+          'UID로 로그인하면 "API 연결" 버튼이 활성화됩니다. 네트워크(메인넷·테스트넷)를 다시 확인한 뒤 Gate.io API Key와 Secret을 입력해 연결하세요.'
       },
       {
         title: '실시간 신호 활용',
         description:
-          '실시간 신호 카드에서 승인된 전략의 웹훅 신호를 확인하고 자동 매매 설정과 연동해 활용하세요.'
+          '관리자 페이지의 대표 웹훅으로 전달된 신호는 자동으로 브로드캐스트됩니다. 실시간 신호 카드에서 내가 선택한 전략 신호만 확인하고 활용할 수 있습니다.'
       }
     ],
-    highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.',
-    adminTitle: '관리자용 빠른 안내',
-    adminDescription:
-      '브라우저 주소창 끝에 /admin 을 붙여 관리자 페이지에 접속한 다음, 백엔드에서 설정한 ADMIN_SECRET 값과 동일한 관리자 토큰을 입력하면 UID 신청 승인·거절과 전략별 웹훅 신호 중계를 관리할 수 있습니다.'
+    highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.'
   },
   en: {
     cardTitle: 'Usage Guide',
@@ -76,20 +71,17 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           'After submitting, the status changes to "Pending". Once the admin approves you, the Access Key and approved strategy list are updated. If denied, you will see a helpful notice.'
       },
       {
-        title: 'Connect API & Webhook',
+        title: 'Prepare the API Connection',
         description:
-          'Before UID approval the "Connect API" button and "Webhook Settings" area remain locked. When you are approved they become active and only the approved strategies feed into your personal webhook URL.'
+          'Once you log in with your UID, the "Connect API" button becomes active. Double-check the selected network (Mainnet/Testnet) and enter your Gate.io API Key and Secret to connect.'
       },
       {
         title: 'Use Live Signals',
         description:
-          'Open the live signal card to monitor webhook events for the strategies you subscribed to and tie them to your automation if needed.'
+          'Signals sent through the admin console’s master webhook are broadcast automatically. The live signal card only shows the strategies you opted into so you can react quickly.'
       }
     ],
-    highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.',
-    adminTitle: 'Quick note for admins',
-    adminDescription:
-      'Append /admin to the site URL to open the console, then sign in with the admin token that matches the backend ADMIN_SECRET. From there you can approve or deny UID requests and broadcast webhook signals to members.'
+    highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.'
   },
   ja: {
     cardTitle: 'ご利用ガイド',
@@ -112,20 +104,17 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           '申請後はステータスが「承認待ち」と表示され、管理者が許可すると「承認済み」に変わり、アクセスキーと承認済み戦略の一覧が更新されます。却下された場合は案内メッセージが表示されます。'
       },
       {
-        title: 'API・Webhookを接続',
+        title: 'API接続の準備',
         description:
-          'UID承認前は「API接続」ボタンと「Webhook設定」セクションはロックされています。承認されると有効になり、承認済みの戦略だけが個人用Webhook URLとシグナルに含まれます。'
+          'UIDでログインすると「API接続」ボタンが有効になります。選択中のネットワーク（メインネット／テストネット）を再確認し、Gate.ioのAPI KeyとSecretを入力して接続してください。'
       },
       {
         title: 'ライブシグナルを活用',
         description:
-          'ライブシグナルカードで購読中の戦略から届くWebhookシグナルを確認し、必要に応じて自動売買設定と連携してください。'
+          '管理者コンソールの代表Webhookに届いたシグナルは自動で配信されます。ライブシグナルカードでは自分が選んだ戦略の情報だけを確認できます。'
       }
     ],
-    highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。',
-    adminTitle: '管理者向けメモ',
-    adminDescription:
-      'URLの末尾に /admin を付けて管理画面にアクセスし、バックエンドの ADMIN_SECRET と同じ管理者トークンでログインすると、UID申請の承認／却下や戦略ごとのWebhook配信を管理できます。'
+    highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。'
   }
 };
 
@@ -162,10 +151,6 @@ const UsageGuide: React.FC = () => {
           {content.highlight}
         </div>
 
-        <div className="rounded-xl border border-gray-700 bg-black/30 p-4">
-          <h4 className="mb-2 text-sm font-semibold text-gate-primary">{content.adminTitle}</h4>
-          <p className="text-sm leading-relaxed text-gray-200">{content.adminDescription}</p>
-        </div>
       </div>
     </Card>
   );
