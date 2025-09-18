@@ -49,7 +49,7 @@ const AdminApp: React.FC = () => {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [signalStrategy, setSignalStrategy] = useState('default');
+  const [signalStrategy, setSignalStrategy] = useState('');
   const [signals, setSignals] = useState<AdminSignal[]>([]);
   const [addingStrategy, setAddingStrategy] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState('');
@@ -159,7 +159,7 @@ const AdminApp: React.FC = () => {
   }, [token, fetchOverview]);
 
   useEffect(() => {
-    if (token) fetchSignals(signalStrategy);
+    if (token && signalStrategy) fetchSignals(signalStrategy);
   }, [token, signalStrategy, fetchSignals]);
 
   useEffect(() => {
@@ -199,7 +199,7 @@ const AdminApp: React.FC = () => {
     setOverview(null);
     setSignals([]);
     setSelectionMap({});
-    setSignalStrategy('default');
+    setSignalStrategy('');
     setError('');
     setOverviewUpdatedAt(null);
   };
