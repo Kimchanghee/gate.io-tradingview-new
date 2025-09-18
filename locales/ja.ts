@@ -101,6 +101,7 @@ export const ja = {
   inactive: "非アクティブ",
   
   // Webhook
+<<<<<<< ours
   webhookSettings: "Webhook設定",
   webhookDescription: "JSON信号を送信して自動的に取引を実行します",
   webhookUrlDesc: "TradingViewアラートで使用するURL：",
@@ -116,6 +117,17 @@ export const ja = {
   webhookJsonExample: "TradingViewアラートJSON例：",
   webhookHint: "TradingViewでアラート作成 → Webhook URL入力 → JSONメッセージ設定",
   urlCopied: "URLがコピーされました",
+=======
+  webhookSettings: "シグナル購読案内",
+  webhookBroadcastInfo:
+    "管理コンソールで生成した代表Webhookに届いたシグナルは、ログインしていなくても購読した戦略だけが自動的に会員へ配信されます。個別のWebhook URLを作成する必要はありません。",
+  webhookPendingNotice: "承認が完了すると選択した戦略のシグナルが自動で届きます。",
+  webhookLoginRequired: "UIDで認証してください。",
+  webhookApprovedNotice: "承認済みです。選択した戦略のシグナルが自動配信されます。",
+  webhookStrategiesTitle: "購読中の戦略",
+  webhookNoStrategies: "承認済みの戦略がまだありません。",
+  webhookSelectionReminder: "購読内容を変更したい場合はUID登録カードで選択を更新してください。",
+>>>>>>> theirs
   
   // ログ
   realtimeLogs: "リアルタイムログ",
@@ -145,5 +157,48 @@ export const ja = {
   optionsNotActivated: "オプションアカウントが有効化されていません",
   fundTransferWarning: "先物アカウントに資金がありません。現物から先物に資金を移動してください。",
   symbol: "シンボル",
-  investmentAmount: "投資額"
+  investmentAmount: "投資額",
+
+  // UID と登録
+  userRegistrationTitle: "UID認証と戦略申請",
+  uidLabel: "Gate.io UID",
+  uidPlaceholder: "Gate.ioのUIDを入力してください",
+  uidLoginHelp: "UIDでログインし、受信したい戦略を選択して管理者に申請します。",
+  uidLoginButton: "UIDログイン",
+  uidRegisterButton: "UID登録",
+  uidLoginRequiredMessage: "UIDを入力してください。",
+  strategySelectLabel: "受信したい指標シグナル",
+  strategyNone: "利用可能な戦略がありません。",
+  strategySelectionRequiredMessage: "少なくとも1つの戦略を選択してください。",
+  registrationRequestFailed: "登録に失敗しました。しばらくしてからお試しください。",
+  registrationRequestSent: "申請を送信しました。承認までお待ちください。",
+  uidAlertMessage: "UID認証には最大2時間ほどかかります。",
+  registrationRequestError: "申請の送信中にエラーが発生しました。",
+  uidLoginFailed: "UID情報を取得できませんでした。もう一度ご確認ください。",
+  uidLoginSuccess: "UIDステータスが更新されました。",
+  uidLoginError: "UIDステータスの確認中にエラーが発生しました。",
+  currentStatusLabel: "現在の状態",
+  statusApproved: "承認済み",
+  statusPending: "承認待ち",
+  statusDenied: "拒否",
+  statusNotRegistered: "未登録",
+  statusUnknown: "不明",
+  uidPendingNotice: "現在承認待ちです。完了次第お知らせします。",
+  uidDeniedNotice: "申請が拒否されました。管理者へお問い合わせください。",
+  requestedStrategiesLabel: "申請した戦略",
+  approvedStrategiesLabel: "承認された戦略",
+  accessKeyLabel: "アクセスキー",
+  uidAuthRequired: "UIDで認証してください。",
+  uidApprovalRequiredForApi: "UIDの承認が完了するとAPIを接続できます。",
+
+  // シグナル案内
+  signalFeedTitle: "ライブ戦略シグナル",
+  signalLoginRequired: "UIDでログインするとリアルタイムのシグナルを確認できます。",
+  signalPendingMessage: "管理者の承認待ちです。承認後にシグナルが表示されます。",
+  signalDeniedMessage: "アクセスが拒否されました。管理者へお問い合わせください。",
+  signalStrategiesTitle: "受信中の戦略",
+  signalNoStrategies: "承認済みの戦略がまだありません。",
+  signalErrorForbidden: "アクセス権がありません。UID承認状況をご確認ください。",
+  signalErrorGeneric: "シグナルの取得中に問題が発生しました。",
+  signalEmpty: "まだ受信したシグナルはありません。"
 };

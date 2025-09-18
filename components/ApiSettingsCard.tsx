@@ -77,7 +77,19 @@ const ApiSettingsCard: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [activeTab, setActiveTab] = useState<'futures' | 'spot' | 'margin' | 'options'>('futures');
 
+  const uidReady = state.user.isLoggedIn;
+  const isUidApproved = state.user.status === 'approved';
+  const canUseApi = uidReady && isUidApproved;
+
   const handleConnect = async () => {
+    if (!uidReady) {
+      setConnectionStatus(translate('uidAuthRequired'));
+      return;
+    }
+    if (!isUidApproved) {
+      setConnectionStatus(translate('uidApprovalRequiredForApi'));
+      return;
+    }
     if (!apiKey || !apiSecret) {
       setConnectionStatus(translate('enterApiCredentials'));
       return;
@@ -256,15 +268,28 @@ const ApiSettingsCard: React.FC = () => {
 
           <button
             onClick={handleConnect}
-            disabled={isConnecting}
+            disabled={isConnecting || !canUseApi}
             className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
-              isConnecting
+              isConnecting || !canUseApi
                 ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
                 : 'bg-gate-primary text-white hover:bg-opacity-90'
             }`}
           >
             {isConnecting ? translate('connecting') : translate('connect')}
           </button>
+
+          {!uidReady && (
+            <div className="text-xs text-red-300 bg-red-900/20 border border-red-500/30 rounded-lg px-3 py-2">
+              {translate('uidAuthRequired')}
+            </div>
+          )}
+
+          {uidReady && !isUidApproved && (
+            <div className="text-xs text-yellow-200 bg-yellow-900/10 border border-yellow-500/30 rounded-lg px-3 py-2 space-y-1">
+              <p>{translate('uidApprovalRequiredForApi')}</p>
+              <p className="text-[11px] text-yellow-100/80">{translate('uidPendingNotice')}</p>
+            </div>
+          )}
 
           {connectionStatus && (
             <div className="text-sm text-center p-2 bg-gate-secondary rounded-lg">

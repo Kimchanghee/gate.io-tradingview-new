@@ -101,6 +101,7 @@ export const ko = {
   inactive: "비활성",
   
   // 웹훅
+<<<<<<< ours
   webhookSettings: "웹훅 설정",
   webhookDescription: "JSON 신호를 보내 자동으로 거래를 실행합니다",
   webhookUrlDesc: "TradingView Alert에서 사용할 URL:",
@@ -116,6 +117,17 @@ export const ko = {
   webhookJsonExample: "TradingView Alert JSON 예시:",
   webhookHint: "TradingView에서 Alert 생성 → Webhook URL 입력 → JSON 메시지 설정",
   urlCopied: "URL이 복사되었습니다",
+=======
+  webhookSettings: "신호 구독 안내",
+  webhookBroadcastInfo:
+    "관리자 페이지에서 대표 웹훅으로 받은 신호는 접속 여부와 관계없이 회원별로 자동 전달되며, 내가 선택한 전략만 수신됩니다. 별도의 웹훅 주소를 만들 필요가 없습니다.",
+  webhookPendingNotice: "승인이 완료되면 선택한 전략 신호가 자동으로 전달됩니다.",
+  webhookLoginRequired: "UID로 인증해주세요.",
+  webhookApprovedNotice: "승인이 완료되어 선택한 전략의 신호가 자동으로 수신됩니다.",
+  webhookStrategiesTitle: "구독 중인 전략",
+  webhookNoStrategies: "아직 승인된 전략이 없습니다.",
+  webhookSelectionReminder: "전략 변경이 필요하면 위의 UID 등록 카드에서 선택을 수정해 주세요.",
+>>>>>>> theirs
   
   // 로그
   realtimeLogs: "실시간 로그",
@@ -145,5 +157,52 @@ export const ko = {
   optionsNotActivated: "옵션 계정이 활성화되지 않았습니다",
   fundTransferWarning: "선물 계정에 자금이 없습니다. 현물→선물로 자금을 이체해주세요.",
   symbol: "심볼",
+<<<<<<< ours
   investmentAmount: "투자금액"
+=======
+  investmentAmount: "투자 금액",
+
+  // UID & 등록
+  userRegistrationTitle: "UID 인증 및 전략 신청",
+  uidLabel: "Gate.io UID",
+  uidPlaceholder: "숫자로 된 Gate.io UID를 입력하세요",
+  uidLoginHelp: "UID 로그인 후 전략을 선택하고 등록하면 관리자 승인을 받을 수 있습니다.",
+  uidLoginButton: "UID 로그인",
+  uidRegisterButton: "UID 등록",
+  uidLoginRequiredMessage: "UID를 입력해 주세요.",
+  strategySelectLabel: "받고 싶은 지표 신호 전략",
+  strategyNone: "등록 가능한 전략이 없습니다.",
+  strategySelectionRequiredMessage: "최소 한 개 이상의 전략을 선택해 주세요.",
+  registrationRequestFailed: "등록에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+  registrationRequestSent: "등록 요청을 전송했습니다. 승인까지 잠시 기다려 주세요.",
+  uidAlertMessage: "UID 인증은 최대 2시간 정도 걸립니다.",
+  registrationRequestError: "요청 처리 중 오류가 발생했습니다.",
+  uidLoginFailed: "UID 정보를 불러오지 못했습니다. 다시 확인해 주세요.",
+  uidLoginSuccess: "UID 인증 정보가 업데이트되었습니다.",
+  uidLoginError: "UID 상태를 조회하는 중 오류가 발생했습니다.",
+  currentStatusLabel: "현재 상태",
+  statusApproved: "승인됨",
+  statusPending: "승인 대기 중",
+  statusDenied: "거절됨",
+  statusNotRegistered: "등록되지 않음",
+  statusUnknown: "알 수 없음",
+  uidPendingNotice: "승인 대기 중입니다. 관리자가 확인 후 연락을 드립니다.",
+  uidDeniedNotice: "거절된 상태입니다. 관리자에게 문의해 주세요.",
+  requestedStrategiesLabel: "요청한 전략",
+  approvedStrategiesLabel: "승인된 전략",
+  accessKeyLabel: "접근 키",
+  uidAuthRequired: "UID로 인증해주세요.",
+  uidApprovalRequiredForApi: "UID 승인이 완료되면 API를 연결할 수 있습니다.",
+
+  // 신호 안내
+  signalFeedTitle: "실시간 전략 신호",
+  signalLoginRequired: "UID로 로그인하면 실시간 전략 신호를 확인할 수 있습니다.",
+  signalPendingMessage: "관리자 승인을 기다리는 중입니다. 승인 후 신호가 표시됩니다.",
+  signalDeniedMessage: "승인이 거절된 상태입니다. 관리자에게 문의해 주세요.",
+  signalStrategiesTitle: "신호 수신 중인 전략",
+  signalNoStrategies: "승인된 전략이 없거나 아직 선택하지 않았습니다.",
+  signalErrorForbidden: "접근 권한이 없습니다. UID 승인 상태를 확인해 주세요.",
+  signalErrorGeneric: "신호를 불러오는 중 문제가 발생했습니다.",
+  signalEmpty: "아직 수신된 신호가 없습니다."
+>>>>>>> theirs
 };

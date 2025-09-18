@@ -1,5 +1,6 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Card from './Card';
+import { useAppContext } from '../contexts/AppContext';
 
 interface Strategy {
   id: string;
@@ -8,15 +9,21 @@ interface Strategy {
   active?: boolean;
 }
 
+interface NamedStrategy {
+  id: string;
+  name: string;
+}
+
 interface UserStatusResponse {
   status: 'not_registered' | 'pending' | 'approved' | 'denied' | string;
-  requestedStrategies?: { id: string; name: string }[];
-  approvedStrategies?: { id: string; name: string }[];
+  requestedStrategies?: NamedStrategy[];
+  approvedStrategies?: NamedStrategy[];
   accessKey?: string;
 }
 
 const RegistrationCard: React.FC = () => {
-  const [uid, setUid] = useState(() => localStorage.getItem('user_uid') || '');
+  const { state, dispatch, translate } = useAppContext();
+  const [uid, setUid] = useState(state.user.uid || '');
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selected, setSelected] = useState<string[]>(() => {
     try {
@@ -28,9 +35,20 @@ const RegistrationCard: React.FC = () => {
   });
   const [statusInfo, setStatusInfo] = useState<UserStatusResponse | null>(null);
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [registerLoading, setRegisterLoading] = useState(false);
 
-  const accessKey = useMemo(() => (statusInfo?.status === 'approved' ? statusInfo.accessKey : null), [statusInfo]);
+  const activeUid = state.user.uid;
+
+  const approvedStrategyNames = useMemo(() => {
+    if (statusInfo?.approvedStrategies?.length) {
+      return statusInfo.approvedStrategies.map((s) => s.name);
+    }
+    if (state.user.approvedStrategies?.length) {
+      return state.user.approvedStrategies.map((s) => s.name);
+    }
+    return [];
+  }, [statusInfo?.approvedStrategies, state.user.approvedStrategies]);
 
   useEffect(() => {
     const fetchStrategies = async () => {
@@ -49,18 +67,39 @@ const RegistrationCard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!uid) return;
+    if (state.user.uid && state.user.uid !== uid) {
+      setUid(state.user.uid);
+    }
+  }, [state.user.uid, uid]);
+
+  useEffect(() => {
+    localStorage.setItem('user_requested_strategies', JSON.stringify(selected));
+  }, [selected]);
+
+  useEffect(() => {
+    if (!activeUid) return;
     let stopped = false;
     const poll = async () => {
       try {
+<<<<<<< ours
         const res = await fetch(/api/user/status?uid=);
+=======
+        const url = `/api/user/status?uid=${encodeURIComponent(activeUid)}`;
+        const res = await fetch(url);
+>>>>>>> theirs
         if (!res.ok) return;
         const data: UserStatusResponse = await res.json();
         if (!stopped) {
           setStatusInfo(data);
-          if (data.status === 'approved' && data.accessKey) {
-            localStorage.setItem('user_access_key', data.accessKey);
-          }
+          dispatch({
+            type: 'SET_USER',
+            payload: {
+              uid: activeUid,
+              status: data.status,
+              accessKey: data.accessKey ?? null,
+              approvedStrategies: (data.approvedStrategies || []).map((item) => ({ id: item.id, name: item.name })),
+            },
+          });
         }
       } catch (err) {
         console.error(err);
@@ -72,52 +111,7 @@ const RegistrationCard: React.FC = () => {
       stopped = true;
       window.clearInterval(id);
     };
-  }, [uid]);
-
-  useEffect(() => {
-    if (uid) {
-      localStorage.setItem('user_uid', uid);
-    }
-  }, [uid]);
-
-  useEffect(() => {
-    localStorage.setItem('user_requested_strategies', JSON.stringify(selected));
-  }, [selected]);
-
-  const submitRegistration = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage('');
-    if (!uid.trim()) {
-      setMessage('UID를 입력해주세요.');
-      return;
-    }
-    if (!selected.length) {
-      setMessage('최소 한 개 이상의 전략을 선택해주세요.');
-      return;
-    }
-    try {
-      setLoading(true);
-      const res = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: uid.trim(), strategies: selected })
-      });
-      if (!res.ok) {
-        setMessage('등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
-        return;
-      }
-      const data = await res.json();
-      if (data && data.status) {
-        setStatusInfo((prev) => ({ ...(prev || {}), status: data.status }));
-      }
-      setMessage('등록 요청을 전송했습니다. 승인을 기다려주세요.');
-    } catch (err) {
-      console.error(err);
-      setMessage('요청 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [activeUid, dispatch]);
 
   const toggleStrategy = (id: string) => {
     setSelected((prev) => {
@@ -126,36 +120,146 @@ const RegistrationCard: React.FC = () => {
     });
   };
 
+  const handleLogin = async () => {
+    setMessage('');
+    const trimmed = uid.trim();
+    if (!trimmed) {
+      setMessage(translate('uidLoginRequiredMessage'));
+      return;
+    }
+    try {
+      setLoginLoading(true);
+      const res = await fetch(`/api/user/status?uid=${encodeURIComponent(trimmed)}`);
+      if (!res.ok) {
+        setMessage(translate('uidLoginFailed'));
+        return;
+      }
+      const data: UserStatusResponse = await res.json();
+      setStatusInfo(data);
+      if (data.requestedStrategies && data.requestedStrategies.length) {
+        setSelected(data.requestedStrategies.map((s) => s.id));
+      }
+      dispatch({
+        type: 'SET_USER',
+        payload: {
+          uid: trimmed,
+          status: data.status,
+          accessKey: data.accessKey ?? null,
+          approvedStrategies: (data.approvedStrategies || []).map((item) => ({ id: item.id, name: item.name })),
+          isLoggedIn: true,
+        },
+      });
+      setMessage(translate('uidLoginSuccess'));
+    } catch (err) {
+      console.error(err);
+      setMessage(translate('uidLoginError'));
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const submitRegistration = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage('');
+    const trimmed = uid.trim();
+    if (!trimmed) {
+      setMessage(translate('uidLoginRequiredMessage'));
+      return;
+    }
+    if (!selected.length) {
+      setMessage(translate('strategySelectionRequiredMessage'));
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.alert(translate('uidAlertMessage'));
+    }
+
+    try {
+      setRegisterLoading(true);
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: trimmed, strategies: selected })
+      });
+      if (!res.ok) {
+        setMessage(translate('registrationRequestFailed'));
+        return;
+      }
+      const data = await res.json();
+      setStatusInfo((prev) => ({ ...(prev || {}), status: data.status }));
+      dispatch({
+        type: 'SET_USER',
+        payload: {
+          uid: trimmed,
+          status: data.status,
+          accessKey: null,
+          isLoggedIn: true,
+        },
+      });
+      setMessage(translate('registrationRequestSent'));
+    } catch (err) {
+      console.error(err);
+      setMessage(translate('registrationRequestError'));
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
   const statusLabel = (() => {
-    switch (statusInfo?.status) {
+    const currentStatus = statusInfo?.status || state.user.status;
+    switch (currentStatus) {
       case 'approved':
-        return '승인됨';
+        return translate('statusApproved');
       case 'pending':
-        return '승인 대기 중';
+        return translate('statusPending');
       case 'denied':
-        return '거절됨';
+        return translate('statusDenied');
       case 'not_registered':
-        return '등록되지 않음';
+        return translate('statusNotRegistered');
       default:
-        return statusInfo?.status || '미등록';
+        return currentStatus || translate('statusUnknown');
     }
   })();
 
   return (
-    <Card title="사용자 등록" className="mb-5">
-      <form onSubmit={submitRegistration} className="space-y-4">
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">UID</label>
+    <Card title={translate('userRegistrationTitle')} className="mb-5">
+      <form onSubmit={submitRegistration} className="space-y-5">
+        <div className="space-y-3">
+          <label className="block text-sm text-gray-400 mb-1">{translate('uidLabel')}</label>
           <input
             type="text"
             value={uid}
             onChange={(e) => setUid(e.target.value)}
-            placeholder="Gate.io UID"
+            placeholder={translate('uidPlaceholder')}
             className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
           />
+          <p className="text-xs text-gray-500">{translate('uidLoginHelp')}</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={loginLoading}
+              className={`px-4 py-2 rounded bg-gate-secondary text-sm font-medium hover:bg-gate-secondary/80 transition ${
+                loginLoading ? 'opacity-60 cursor-not-allowed' : ''
+              }`}
+            >
+              {loginLoading ? translate('loading') : translate('uidLoginButton')}
+            </button>
+            <button
+              type="submit"
+              disabled={registerLoading}
+              className={`px-4 py-2 bg-gate-primary text-black rounded hover:bg-green-500 transition text-sm font-semibold ${
+                registerLoading ? 'opacity-60 cursor-not-allowed' : ''
+              }`}
+            >
+              {registerLoading ? translate('loading') : translate('uidRegisterButton')}
+            </button>
+          </div>
         </div>
+
         <div>
-          <label className="block text-sm text-gray-400 mb-2">구독할 전략 선택</label>
+          <label className="block text-sm text-gray-400 mb-2">{translate('strategySelectLabel')}</label>
           <div className="flex flex-wrap gap-2">
             {strategies.map((strategy) => (
               <label key={strategy.id} className={px-3 py-2 border rounded cursor-pointer text-sm }>
@@ -169,27 +273,37 @@ const RegistrationCard: React.FC = () => {
               </label>
             ))}
             {strategies.length === 0 && (
-              <div className="text-xs text-gray-500">등록 가능한 전략이 없습니다.</div>
+              <div className="text-xs text-gray-500">{translate('strategyNone')}</div>
             )}
           </div>
         </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-4 py-2 bg-gate-primary text-black rounded hover:bg-green-500 transition disabled:opacity-60"
-        >
-          등록 요청
-        </button>
+
         {message && <div className="text-sm text-gray-300">{message}</div>}
       </form>
-      <div className="mt-4 text-sm">
-        <div>현재 상태: <span className="font-semibold">{statusLabel}</span></div>
-        {accessKey && (
-          <div className="text-xs text-gray-400 mt-1">접근 키: {accessKey}</div>
+
+      <div className="mt-4 text-sm space-y-2">
+        <div>
+          {translate('currentStatusLabel')}: <span className="font-semibold">{statusLabel}</span>
+        </div>
+        {state.user.status === 'pending' && (
+          <div className="text-xs text-yellow-300">{translate('uidPendingNotice')}</div>
         )}
-        {statusInfo?.approvedStrategies && statusInfo.approvedStrategies.length > 0 && (
-          <div className="text-xs text-gray-400 mt-1">
-            승인된 전략: {statusInfo.approvedStrategies.map((s) => s.name).join(', ')}
+        {state.user.status === 'denied' && (
+          <div className="text-xs text-red-300">{translate('uidDeniedNotice')}</div>
+        )}
+        {(statusInfo?.requestedStrategies?.length ?? 0) > 0 && (
+          <div className="text-xs text-gray-400">
+            {translate('requestedStrategiesLabel')}: {statusInfo?.requestedStrategies?.map((s) => s.name).join(', ')}
+          </div>
+        )}
+        {approvedStrategyNames.length > 0 && (
+          <div className="text-xs text-gray-400">
+            {translate('approvedStrategiesLabel')}: {approvedStrategyNames.join(', ')}
+          </div>
+        )}
+        {state.user.accessKey && (
+          <div className="text-xs text-gray-400">
+            {translate('accessKeyLabel')}: {state.user.accessKey}
           </div>
         )}
       </div>
