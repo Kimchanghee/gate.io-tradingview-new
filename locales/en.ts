@@ -123,7 +123,6 @@ export const en = {
   realtime: "Real-time",
   autoScroll: "Auto Scroll",
   clear: "Clear",
-  refresh: "Refresh",
   noLogs: "No logs yet.",
   logsHint: "Send a webhook or call the API.",
   lastUpdate: "Last update:",
