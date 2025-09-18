@@ -144,6 +144,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 dispatch({ type: 'SET_LANGUAGE', payload: savedLanguage as Language });
             }
 
+            // Restore saved network preference
+            const savedNetwork = localStorage.getItem('gateio_network') as Network | null;
+            if (savedNetwork === Network.Mainnet || savedNetwork === Network.Testnet) {
+                dispatch({ type: 'SET_NETWORK', payload: savedNetwork });
+            }
+
             // 저장된 사용자 정보 불러오기
             const storedUid = localStorage.getItem('user_uid') || '';
             const storedStatus = (localStorage.getItem('user_status') as UserStatus | null) || 'not_registered';
