@@ -9,10 +9,30 @@ const WebhookCard: React.FC = () => {
   const status = state.user.status;
   const allowedStrategies = state.user.approvedStrategies || [];
 
+  const statusLabel = (() => {
+    switch (status) {
+      case 'approved':
+        return translate('statusApproved');
+      case 'pending':
+        return translate('statusPending');
+      case 'denied':
+        return translate('statusDenied');
+      case 'not_registered':
+        return translate('statusNotRegistered');
+      default:
+        return status ? status : translate('statusUnknown');
+    }
+  })();
+
   return (
     <Card title={translate('webhookSettings')}>
       <div className="space-y-5 text-sm">
         <p className="text-gate-text-secondary">{translate('webhookBroadcastInfo')}</p>
+
+        <div className="flex items-center justify-between rounded-lg border border-gray-700 bg-black/20 px-3 py-2 text-xs text-gray-300">
+          <span className="font-semibold text-gray-200">{translate('currentStatusLabel')}</span>
+          <span>{statusLabel}</span>
+        </div>
 
         {!uidReady && (
           <div className="text-xs text-red-300 bg-red-900/20 border border-red-500/30 rounded-lg px-3 py-2">

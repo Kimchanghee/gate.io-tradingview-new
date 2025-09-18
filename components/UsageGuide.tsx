@@ -14,6 +14,8 @@ interface GuideCopy {
   stepLabel: string;
   steps: GuideStep[];
   highlight: string;
+  adminTitle: string;
+  adminSteps: string[];
 }
 
 const GUIDE_CONTENT: Record<Language, GuideCopy> = {
@@ -48,7 +50,13 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           '관리자 페이지의 대표 웹훅으로 전달된 신호는 자동으로 브로드캐스트됩니다. 실시간 신호 카드에서 내가 선택한 전략 신호만 확인하고 활용할 수 있습니다.'
       }
     ],
-    highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.'
+    highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.',
+    adminTitle: '관리자 빠른 안내',
+    adminSteps: [
+      '브라우저 주소창 끝에 /admin 을 붙여 관리자 페이지에 접속하세요.',
+      '백엔드에서 발급받은 ADMIN_SECRET 값과 동일한 관리자 토큰으로 로그인하면 승인 대기 목록이 열립니다.',
+      '각 UID 신청에서 전략을 확인해 승인·거절을 처리하고, 대표 웹훅으로 들어오는 신호를 선택한 회원들에게 중계할 수 있습니다.'
+    ]
   },
   en: {
     cardTitle: 'Usage Guide',
@@ -81,7 +89,13 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           'Signals sent through the admin console’s master webhook are broadcast automatically. The live signal card only shows the strategies you opted into so you can react quickly.'
       }
     ],
-    highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.'
+    highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.',
+    adminTitle: 'Quick guide for admins',
+    adminSteps: [
+      'Append /admin to the site URL to open the management console.',
+      'Sign in with the admin token that matches the backend ADMIN_SECRET to unlock the pending request list.',
+      'Review each UID request, approve or deny the selected strategies, and relay master-webhook signals to subscribed members.'
+    ]
   },
   ja: {
     cardTitle: 'ご利用ガイド',
@@ -114,7 +128,13 @@ const GUIDE_CONTENT: Record<Language, GuideCopy> = {
           '管理者コンソールの代表Webhookに届いたシグナルは自動で配信されます。ライブシグナルカードでは自分が選んだ戦略の情報だけを確認できます。'
       }
     ],
-    highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。'
+    highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。',
+    adminTitle: '管理者向けの簡単な流れ',
+    adminSteps: [
+      'URLの末尾に /admin を付けて管理コンソールを開きます。',
+      'バックエンドの ADMIN_SECRET と同じ管理者トークンでサインインすると承認待ちリストが表示されます。',
+      '各UID申請を確認して承認・却下を行い、代表Webhookに届いたシグナルを購読中の会員へ配信します。'
+    ]
   }
 };
 
@@ -149,6 +169,15 @@ const UsageGuide: React.FC = () => {
 
         <div className="rounded-xl border-l-4 border-gate-primary bg-black/40 p-4 text-sm leading-relaxed text-gray-100">
           {content.highlight}
+        </div>
+
+        <div className="rounded-xl border border-gray-700 bg-black/30 p-4 space-y-3">
+          <h4 className="text-sm font-semibold text-gate-primary">{content.adminTitle}</h4>
+          <ol className="list-decimal list-inside space-y-1 text-sm leading-relaxed text-gray-200">
+            {content.adminSteps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
         </div>
 
       </div>
