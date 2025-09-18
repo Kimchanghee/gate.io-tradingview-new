@@ -972,7 +972,7 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
         </label>
 
-        <div className="flex items-end gap-2">
+        <div className="flex flex-col gap-2 md:ml-auto md:flex-row md:items-end md:justify-end">
 
           <button
 
@@ -982,7 +982,7 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
             disabled={isSyncingSettings}
 
-            className="px-3 py-2 bg-gate-primary text-black rounded font-semibold hover:bg-green-500 transition-colors disabled:opacity-60"
+            className="flex h-10 w-full items-center justify-center rounded bg-gate-primary px-4 text-sm font-semibold text-black transition-colors hover:bg-green-500 disabled:opacity-60 md:w-auto"
 
           >
 
@@ -992,7 +992,7 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
           <select
 
-            className="bg-slate-900 border border-gate-border rounded px-2 py-1 text-xs ml-auto md:ml-0"
+            className="h-10 w-full rounded border border-gate-border bg-slate-900 px-3 text-xs md:w-auto"
 
             value={lang}
 

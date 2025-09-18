@@ -34,8 +34,30 @@ const PositionDashboard: React.FC = () => {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const data = await response.json();
-      const positionsData = data.positions || [];
+
+      const raw = await response.text();
+      if (!raw.trim()) {
+        setPositions([]);
+        setTotalPnl(0);
+        setTotalInvestment(0);
+        setLastUpdated(new Date().toISOString());
+        return;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (parseError) {
+        console.warn('Received invalid JSON when loading positions', parseError);
+        setPositions([]);
+        setTotalPnl(0);
+        setTotalInvestment(0);
+        setLastUpdated(new Date().toISOString());
+        return;
+      }
+
+      const data = parsed as { positions?: Position[] };
+      const positionsData = Array.isArray(data.positions) ? data.positions : [];
 
       const enhancedPositions = positionsData.map((pos: Position) => ({
         ...pos,
