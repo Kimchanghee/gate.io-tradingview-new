@@ -10,6 +10,7 @@ import NotificationHandler from './components/NotificationHandler';
 import AdminApp from './components/AdminApp';
 import RegistrationCard from './components/RegistrationCard';
 import SignalFeedCard from './components/SignalFeedCard';
+import UsageGuide from './components/UsageGuide';
 
 const App: React.FC = () => {
   const isAdminRoute = useMemo(() => typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'), []);
@@ -24,6 +25,7 @@ const App: React.FC = () => {
         <div className="container mx-auto max-w-7xl">
           <Header />
           <PromoBanner />
+          <UsageGuide />
 
           <main>
             <RegistrationCard />

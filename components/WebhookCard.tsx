@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Card from './Card';
+import { useAppContext } from '../contexts/AppContext';
 
 const CopyIcon = () => (
   <svg
@@ -14,6 +15,7 @@ const CopyIcon = () => (
 );
 
 const WebhookCard: React.FC = () => {
+  const { state, translate } = useAppContext();
   const [copied, setCopied] = useState(false);
 
   const webhookId = useMemo(() => {
@@ -27,7 +29,13 @@ const WebhookCard: React.FC = () => {
 
   const WEBHOOK_URL = useMemo(() => `${window.location.origin}/webhook/${encodeURIComponent(webhookId)}`, [webhookId]);
 
+  const uidReady = state.user.isLoggedIn;
+  const isApproved = state.user.status === 'approved';
+  const allowedStrategies = state.user.approvedStrategies || [];
+  const disabled = !uidReady || !isApproved;
+
   const copyToClipboard = async () => {
+    if (disabled) return;
     try {
       await navigator.clipboard.writeText(WEBHOOK_URL);
       setCopied(true);
@@ -36,10 +44,28 @@ const WebhookCard: React.FC = () => {
   };
 
   return (
-    <Card title="웹훅 설정">
+    <Card title={translate('webhookSettings')}>
       <div className="space-y-5">
-        <div className="bg-gate-dark p-4 rounded-xl border border-gate-border">
-          <p className="text-sm text-gate-text-secondary mb-4">TradingView Alert에서 사용할 URL:</p>
+        <p className="text-sm text-gate-text-secondary">{translate('webhookIndicatorHint')}</p>
+
+        {disabled && (
+          <div
+            className={`text-xs rounded-lg px-3 py-2 border ${
+              uidReady
+                ? 'text-yellow-200 bg-yellow-900/10 border-yellow-500/30'
+                : 'text-red-300 bg-red-900/20 border-red-500/30'
+            }`}
+          >
+            {uidReady ? translate('webhookPendingNotice') : translate('webhookLoginRequired')}
+          </div>
+        )}
+
+        <div
+          className={`bg-gate-dark p-4 rounded-xl border border-gate-border ${
+            disabled ? 'opacity-60 pointer-events-none' : ''
+          }`}
+        >
+          <p className="text-sm text-gate-text-secondary mb-4">{translate('webhookUrlDesc')}</p>
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -49,11 +75,31 @@ const WebhookCard: React.FC = () => {
             />
             <button
               onClick={copyToClipboard}
-              className="p-2 bg-gate-primary text-gate-dark rounded-lg hover:bg-green-500 transition-colors text-xs font-bold flex items-center gap-1"
+              disabled={disabled}
+              className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1 ${
+                disabled
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gate-primary text-gate-dark hover:bg-green-500 transition-colors'
+              }`}
             >
-              <CopyIcon /> {copied ? '복사됨' : '복사'}
+              <CopyIcon /> {copied ? translate('copied') : translate('copy')}
             </button>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs text-gray-400 uppercase tracking-wider">
+            {translate('webhookStrategiesTitle')}
+          </div>
+          {allowedStrategies.length > 0 ? (
+            <ul className="text-xs text-gray-300 list-disc list-inside space-y-1">
+              {allowedStrategies.map((strategy) => (
+                <li key={strategy.id}>{strategy.name}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-xs text-gray-500">{translate('webhookNoStrategies')}</div>
+          )}
         </div>
       </div>
     </Card>
