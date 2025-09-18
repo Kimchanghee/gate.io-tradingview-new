@@ -53,7 +53,8 @@ const RegistrationCard: React.FC = () => {
     let stopped = false;
     const poll = async () => {
       try {
-        const res = await fetch(/api/user/status?uid=);
+        const url = `/api/user/status?uid=${encodeURIComponent(uid)}`;
+        const res = await fetch(url);
         if (!res.ok) return;
         const data: UserStatusResponse = await res.json();
         if (!stopped) {
@@ -158,7 +159,12 @@ const RegistrationCard: React.FC = () => {
           <label className="block text-sm text-gray-400 mb-2">구독할 전략 선택</label>
           <div className="flex flex-wrap gap-2">
             {strategies.map((strategy) => (
-              <label key={strategy.id} className={px-3 py-2 border rounded cursor-pointer text-sm }>
+              <label
+                key={strategy.id}
+                className={`px-3 py-2 border rounded cursor-pointer text-sm flex items-center gap-2 ${
+                  selected.includes(strategy.id) ? 'border-gate-primary bg-gate-primary/10' : 'border-gray-700'
+                }`}
+              >
                 <input
                   type="checkbox"
                   className="mr-2"

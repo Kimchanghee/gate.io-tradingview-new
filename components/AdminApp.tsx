@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from './Card';
 
 interface AdminStrategy {
@@ -58,52 +58,72 @@ const AdminApp: React.FC = () => {
 
   const authorized = useMemo(() => Boolean(token), [token]);
 
-  const buildHeaders = useCallback(() => {
-    if (!token) return {};
-    return { 'Content-Type': 'application/json', 'x-admin-token': token } as Record<string, string>;
-  }, [token]);
+  const buildHeaders = useCallback(
+    (overrideToken?: string): Record<string, string> => {
+      const authToken = overrideToken ?? token;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['x-admin-token'] = authToken;
+      }
+      return headers;
+    },
+    [token]
+  );
 
-  const fetchOverview = useCallback(async () => {
-    if (!token) return;
-    try {
-      setLoading(true);
-      setError('');
-      const res = await fetch('/api/admin/overview', { headers: buildHeaders() });
-      if (res.status === 401) {
-        setError('관리자 토큰이 유효하지 않습니다.');
-        setToken('');
-        localStorage.removeItem('admin_token');
-        return;
-      }
-      if (!res.ok) {
-        setError('관리자 데이터를 불러오지 못했습니다.');
-        return;
-      }
-      const data: OverviewResponse = await res.json();
-      setOverview(data);
-      const nextSelection: Record<string, string[]> = {};
-      data.users.forEach((user) => {
-        if (user.status === 'pending') {
-          nextSelection[user.uid] = [...(user.requestedStrategies || [])];
+  const fetchOverview = useCallback(
+    async (overrideToken?: string): Promise<OverviewResponse | null> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken) return null;
+      try {
+        setLoading(true);
+        setError('');
+        const res = await fetch('/api/admin/overview', { headers: buildHeaders(authToken) });
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          setToken('');
+          localStorage.removeItem('admin_token');
+          return null;
         }
-      });
-      setSelectionMap((prev) => ({ ...nextSelection, ...prev }));
-    } catch (err) {
-      console.error(err);
-      setError('관리자 데이터를 불러오는 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, buildHeaders]);
+        if (!res.ok) {
+          setError('관리자 데이터를 불러오지 못했습니다.');
+          return null;
+        }
+        const data: OverviewResponse = await res.json();
+        setOverview(data);
+        const nextSelection: Record<string, string[]> = {};
+        data.users.forEach((user) => {
+          if (user.status === 'pending') {
+            nextSelection[user.uid] = [...(user.requestedStrategies || [])];
+          }
+        });
+        setSelectionMap((prev) => {
+          const preserved = Object.fromEntries(
+            Object.entries(prev).filter(([uid]) => nextSelection[uid])
+          ) as Record<string, string[]>;
+          return { ...nextSelection, ...preserved };
+        });
+        return data;
+      } catch (err) {
+        console.error(err);
+        setError('관리자 데이터를 불러오는 중 오류가 발생했습니다.');
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token, buildHeaders]
+  );
 
   const fetchSignals = useCallback(
-    async (strategyId: string) => {
-      if (!token) return;
+    async (strategyId: string, overrideToken?: string): Promise<void> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken || !strategyId) return;
       try {
-        const res = await fetch(/api/admin/signals?strategy=, { headers: buildHeaders() });
+        const url = `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`;
+        const res = await fetch(url, { headers: buildHeaders(authToken) });
         if (res.ok) {
           const data = await res.json();
-          setSignals(Array.isArray(data.signals) ? data.signals.reverse() : []);
+          setSignals(Array.isArray(data.signals) ? data.signals.slice().reverse() : []);
         }
       } catch (err) {
         console.error(err);
@@ -123,17 +143,35 @@ const AdminApp: React.FC = () => {
     if (token) fetchSignals(signalStrategy);
   }, [token, signalStrategy, fetchSignals]);
 
+  useEffect(() => {
+    if (!overview?.strategies?.length) return;
+    const exists = overview.strategies.some((s) => s.id === signalStrategy);
+    if (!exists) {
+      setSignalStrategy(overview.strategies[0].id);
+    }
+  }, [overview, signalStrategy]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputToken.trim()) {
       setError('토큰을 입력해주세요.');
       return;
     }
-    localStorage.setItem('admin_token', inputToken.trim());
-    setToken(inputToken.trim());
+    const authToken = inputToken.trim();
+    localStorage.setItem('admin_token', authToken);
+    setToken(authToken);
     setInputToken('');
-    await fetchOverview();
-    await fetchSignals(signalStrategy);
+    const latestOverview = await fetchOverview(authToken);
+    const strategies = latestOverview?.strategies || overview?.strategies || [];
+    if (strategies.length) {
+      const nextStrategy = strategies.some((s) => s.id === signalStrategy)
+        ? signalStrategy
+        : strategies[0].id;
+      setSignalStrategy(nextStrategy);
+      await fetchSignals(nextStrategy, authToken);
+    } else {
+      await fetchSignals(signalStrategy, authToken);
+    }
   };
 
   const handleLogout = () => {
@@ -222,10 +260,10 @@ const AdminApp: React.FC = () => {
 
   const toggleStrategyActive = async (strategy: AdminStrategy) => {
     try {
-      const res = await fetch(/api/admin/strategies/, {
+      const res = await fetch(`/api/admin/strategies/${strategy.id}`, {
         method: 'PATCH',
         headers: buildHeaders(),
-        body: JSON.stringify({ active: !(strategy.active !== false ? true : false) })
+        body: JSON.stringify({ active: strategy.active === false })
       });
       if (!res.ok) {
         setError('전략 상태 변경에 실패했습니다.');
@@ -293,9 +331,7 @@ const AdminApp: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 text-red-400 text-sm">{error}</div>
-      )}
+      {error && <div className="mb-4 text-red-400 text-sm">{error}</div>}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card title="전략 관리" className="space-y-4">
@@ -333,7 +369,13 @@ const AdminApp: React.FC = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={	ext-xs px-2 py-0.5 rounded }>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded border ${
+                      strategy.active !== false
+                        ? 'bg-green-500/20 border-green-500/50 text-green-200'
+                        : 'bg-gray-800 border-gray-600 text-gray-300'
+                    }`}
+                  >
                     {strategy.active !== false ? '활성' : '비활성'}
                   </span>
                   <button
@@ -419,7 +461,10 @@ const AdminApp: React.FC = () => {
                 <div className="text-xs text-gray-400">전략 선택:</div>
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(overview?.strategies || []).map((strategy) => (
-                    <label key={${user.uid}-} className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded">
+                    <label
+                      key={`${user.uid}-${strategy.id}`}
+                      className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded"
+                    >
                       <input
                         type="checkbox"
                         checked={(selectionMap[user.uid] || []).includes(strategy.id)}
