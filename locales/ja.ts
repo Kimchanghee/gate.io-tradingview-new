@@ -123,7 +123,6 @@ export const ja = {
   realtime: "リアルタイム",
   autoScroll: "自動スクロール",
   clear: "クリア",
-  refresh: "更新",
   noLogs: "まだログはありません。",
   logsHint: "WebhookまたはAPIを呼び出してください。",
   lastUpdate: "最終更新：",
