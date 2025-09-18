@@ -126,8 +126,15 @@ const AdminApp: React.FC = () => {
       const authToken = overrideToken ?? token;
       if (!authToken || !strategyId) return;
       try {
-        const url = `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`;
-        const res = await fetch(url, { headers: buildHeaders(authToken) });
+        const requestUrl =
+          typeof window === 'undefined'
+            ? `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`
+            : (() => {
+                const url = new URL('/api/admin/signals', window.location.origin);
+                url.searchParams.set('strategy', strategyId);
+                return url.toString();
+              })();
+        const res = await fetch(requestUrl, { headers: buildHeaders(authToken) });
         if (res.status === 401) {
           setError('세션이 만료되었습니다. 다시 로그인해주세요.');
           setToken('');
