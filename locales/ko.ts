@@ -152,6 +152,7 @@ export const ko = {
   strategySelectionRequiredMessage: "최소 한 개 이상의 전략을 선택해 주세요.",
   registrationRequestFailed: "등록에 실패했습니다. 잠시 후 다시 시도해 주세요.",
   registrationRequestSent: "등록 요청을 전송했습니다. 승인까지 잠시 기다려 주세요.",
+  uidAlertMessage: "UID 인증은 최대 2시간 정도 걸립니다.",
   registrationRequestError: "요청 처리 중 오류가 발생했습니다.",
   uidLoginFailed: "UID 정보를 불러오지 못했습니다. 다시 확인해 주세요.",
   uidLoginSuccess: "UID 인증 정보가 업데이트되었습니다.",

@@ -152,6 +152,7 @@ export const en = {
   strategySelectionRequiredMessage: "Please select at least one strategy.",
   registrationRequestFailed: "Registration failed. Please try again shortly.",
   registrationRequestSent: "Registration request sent. Please wait for approval.",
+  uidAlertMessage: "UID verification may take up to 2 hours.",
   registrationRequestError: "An error occurred while sending the request.",
   uidLoginFailed: "Failed to load UID information. Please double-check.",
   uidLoginSuccess: "UID status updated successfully.",

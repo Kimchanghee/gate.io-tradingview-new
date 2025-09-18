@@ -152,6 +152,7 @@ export const ja = {
   strategySelectionRequiredMessage: "少なくとも1つの戦略を選択してください。",
   registrationRequestFailed: "登録に失敗しました。しばらくしてからお試しください。",
   registrationRequestSent: "申請を送信しました。承認までお待ちください。",
+  uidAlertMessage: "UID認証には最大2時間ほどかかります。",
   registrationRequestError: "申請の送信中にエラーが発生しました。",
   uidLoginFailed: "UID情報を取得できませんでした。もう一度ご確認ください。",
   uidLoginSuccess: "UIDステータスが更新されました。",

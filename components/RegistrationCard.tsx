@@ -21,8 +21,6 @@ interface UserStatusResponse {
   accessKey?: string;
 }
 
-const UID_ALERT_MESSAGE = 'UID 인증은 최대 2시간 정도 걸립니다.\nUID verification may take up to 2 hours.\nUID認証には最大2時間ほどかかります。';
-
 const RegistrationCard: React.FC = () => {
   const { state, dispatch, translate } = useAppContext();
   const [uid, setUid] = useState(state.user.uid || '');
@@ -170,7 +168,7 @@ const RegistrationCard: React.FC = () => {
     }
 
     if (typeof window !== 'undefined') {
-      window.alert(UID_ALERT_MESSAGE);
+      window.alert(translate('uidAlertMessage'));
     }
 
     try {
