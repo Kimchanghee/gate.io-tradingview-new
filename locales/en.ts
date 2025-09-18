@@ -1,4 +1,4 @@
-// locales/en.ts - 영어 번역
+// locales/en.ts - English translations
 export const en = {
   // Header
   logo: "Gate.io Futures Trading",
@@ -38,7 +38,7 @@ export const en = {
   walletAccountInfo: "Wallet Account",
   totalWalletBalance: "Total Wallet Balance",
   walletDetails: "Wallet Details",
-  noWalletInfo: "No wallet information",
+  noWalletInfo: "No wallet information available",
   
   // Asset Info
   totalAssets: "Total Assets",
@@ -119,7 +119,7 @@ export const en = {
   
   // Logs
   realtimeLogs: "Real-time Logs",
-  totalLogs: "Total logs",
+  totalLogs: "Total Logs",
   realtime: "Real-time",
   autoScroll: "Auto Scroll",
   clear: "Clear",
@@ -129,15 +129,15 @@ export const en = {
   webhookLogs: "Webhook Logs",
 
   // Account details
-  totalFuturesAssets: 'Total Futures Assets',
-  availableForTrading: 'Available for Trading',
-  positionMarginDetail: 'Position Margin',
-  unrealizedPnlDetail: 'Unrealized P&L',
-  assetFormula: 'Total = Available + Position Margin + Unrealized P&L',
-  assetBreakdown: 'Futures + Spot USDT + Margin Net + Options',
-  unableToLoadFutures: 'Unable to load futures account information.',
-  noFundsInFutures: 'If there are no funds in futures account,',
-  transferFromSpot: 'please transfer funds from spot to futures.',
+  totalFuturesAssets: "Total Futures Assets",
+  availableForTrading: "Available for Trading",
+  positionMarginDetail: "Position Margin",
+  unrealizedPnlDetail: "Unrealized P&L",
+  assetFormula: "Total Assets = Available + Position Margin + Unrealized P&L",
+  assetBreakdown: "Futures + Spot USDT + Margin Net + Options",
+  unableToLoadFutures: "Unable to load futures account information.",
+  noFundsInFutures: "If your futures account has no funds,",
+  transferFromSpot: "please transfer funds from spot to futures.",
 
   // Others
   noAssets: "No assets",
