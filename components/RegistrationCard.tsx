@@ -21,6 +21,8 @@ interface UserStatusResponse {
   accessKey?: string;
 }
 
+const UID_ALERT_MESSAGE = 'UID 인증은 최대 2시간 정도 걸립니다.\nUID verification may take up to 2 hours.\nUID認証には最大2時間ほどかかります。';
+
 const RegistrationCard: React.FC = () => {
   const { state, dispatch, translate } = useAppContext();
   const [uid, setUid] = useState(state.user.uid || '');
@@ -81,12 +83,8 @@ const RegistrationCard: React.FC = () => {
     let stopped = false;
     const poll = async () => {
       try {
-<<<<<<< ours
-        const res = await fetch(/api/user/status?uid=);
-=======
         const url = `/api/user/status?uid=${encodeURIComponent(activeUid)}`;
         const res = await fetch(url);
->>>>>>> theirs
         if (!res.ok) return;
         const data: UserStatusResponse = await res.json();
         if (!stopped) {
@@ -172,7 +170,7 @@ const RegistrationCard: React.FC = () => {
     }
 
     if (typeof window !== 'undefined') {
-      window.alert(translate('uidAlertMessage'));
+      window.alert(UID_ALERT_MESSAGE);
     }
 
     try {
@@ -262,7 +260,12 @@ const RegistrationCard: React.FC = () => {
           <label className="block text-sm text-gray-400 mb-2">{translate('strategySelectLabel')}</label>
           <div className="flex flex-wrap gap-2">
             {strategies.map((strategy) => (
-              <label key={strategy.id} className={px-3 py-2 border rounded cursor-pointer text-sm }>
+              <label
+                key={strategy.id}
+                className={`px-3 py-2 border rounded cursor-pointer text-sm flex items-center gap-2 ${
+                  selected.includes(strategy.id) ? 'border-gate-primary bg-gate-primary/10' : 'border-gray-700'
+                }`}
+              >
                 <input
                   type="checkbox"
                   className="mr-2"

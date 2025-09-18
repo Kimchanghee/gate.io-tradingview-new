@@ -79,15 +79,10 @@ const ApiSettingsCard: React.FC = () => {
 
   const uidReady = state.user.isLoggedIn;
   const isUidApproved = state.user.status === 'approved';
-  const canUseApi = uidReady && isUidApproved;
 
   const handleConnect = async () => {
     if (!uidReady) {
       setConnectionStatus(translate('uidAuthRequired'));
-      return;
-    }
-    if (!isUidApproved) {
-      setConnectionStatus(translate('uidApprovalRequiredForApi'));
       return;
     }
     if (!apiKey || !apiSecret) {
@@ -268,9 +263,9 @@ const ApiSettingsCard: React.FC = () => {
 
           <button
             onClick={handleConnect}
-            disabled={isConnecting || !canUseApi}
+            disabled={isConnecting || !uidReady}
             className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
-              isConnecting || !canUseApi
+              isConnecting || !uidReady
                 ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
                 : 'bg-gate-primary text-white hover:bg-opacity-90'
             }`}
@@ -285,9 +280,8 @@ const ApiSettingsCard: React.FC = () => {
           )}
 
           {uidReady && !isUidApproved && (
-            <div className="text-xs text-yellow-200 bg-yellow-900/10 border border-yellow-500/30 rounded-lg px-3 py-2 space-y-1">
-              <p>{translate('uidApprovalRequiredForApi')}</p>
-              <p className="text-[11px] text-yellow-100/80">{translate('uidPendingNotice')}</p>
+            <div className="text-xs text-yellow-200 bg-yellow-900/10 border border-yellow-500/30 rounded-lg px-3 py-2">
+              {translate('uidPendingNotice')}
             </div>
           )}
 

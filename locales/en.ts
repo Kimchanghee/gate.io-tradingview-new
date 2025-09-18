@@ -1,4 +1,4 @@
-// locales/en.ts - 영어 번역
+// locales/en.ts - English translations
 export const en = {
   // Header
   logo: "Gate.io Futures Trading",
@@ -38,7 +38,7 @@ export const en = {
   walletAccountInfo: "Wallet Account",
   totalWalletBalance: "Total Wallet Balance",
   walletDetails: "Wallet Details",
-  noWalletInfo: "No wallet information",
+  noWalletInfo: "No wallet information available",
   
   // Asset Info
   totalAssets: "Total Assets",
@@ -101,38 +101,43 @@ export const en = {
   inactive: "Inactive",
   
   // Webhook
-  webhookSettings: "Signal Subscription",
-  webhookBroadcastInfo:
-    "Signals received by the admin console's master webhook are delivered automatically to each member, even if they are offline, and only include the strategies they subscribed to. There's no need to create your own webhook URL.",
-  webhookPendingNotice: "Once you're approved, the strategies you chose will start delivering automatically.",
-  webhookLoginRequired: "Please authenticate with your UID.",
-  webhookApprovedNotice: "Approval complete. Signals for your chosen strategies now stream automatically.",
-  webhookStrategiesTitle: "Subscribed strategies",
-  webhookNoStrategies: "No approved strategies yet.",
-  webhookSelectionReminder: "Update the selections in the UID registration card whenever you want to change subscriptions.",
+  webhookSettings: "Webhook Settings",
+  webhookDescription: "Send JSON signals to execute trades automatically",
+  webhookUrlDesc: "URL to use in TradingView Alert:",
+  webhookStatus: "Status:",
+  activated: "Activated",
+  deactivated: "Deactivated",
+  copy: "Copy",
+  copied: "Copied!",
+  startWebhook: "Start Server",
+  stopWebhook: "Stop Server",
+  webhookStarted: "Webhook server started",
+  webhookStopped: "Webhook server stopped",
+  webhookJsonExample: "TradingView Alert JSON Example:",
+  webhookHint: "Create Alert in TradingView → Enter Webhook URL → Set JSON message",
+  urlCopied: "URL copied",
   
   // Logs
   realtimeLogs: "Real-time Logs",
-  totalLogs: "Total logs",
+  totalLogs: "Total Logs",
   realtime: "Real-time",
   autoScroll: "Auto Scroll",
   clear: "Clear",
-  refresh: "Refresh",
   noLogs: "No logs yet.",
   logsHint: "Send a webhook or call the API.",
   lastUpdate: "Last update:",
   webhookLogs: "Webhook Logs",
 
   // Account details
-  totalFuturesAssets: 'Total Futures Assets',
-  availableForTrading: 'Available for Trading',
-  positionMarginDetail: 'Position Margin',
-  unrealizedPnlDetail: 'Unrealized P&L',
-  assetFormula: 'Total = Available + Position Margin + Unrealized P&L',
-  assetBreakdown: 'Futures + Spot USDT + Margin Net + Options',
-  unableToLoadFutures: 'Unable to load futures account information.',
-  noFundsInFutures: 'If there are no funds in futures account,',
-  transferFromSpot: 'please transfer funds from spot to futures.',
+  totalFuturesAssets: "Total Futures Assets",
+  availableForTrading: "Available for Trading",
+  positionMarginDetail: "Position Margin",
+  unrealizedPnlDetail: "Unrealized P&L",
+  assetFormula: "Total Assets = Available + Position Margin + Unrealized P&L",
+  assetBreakdown: "Futures + Spot USDT + Margin Net + Options",
+  unableToLoadFutures: "Unable to load futures account information.",
+  noFundsInFutures: "If your futures account has no funds,",
+  transferFromSpot: "please transfer funds from spot to futures.",
 
   // Others
   noAssets: "No assets",
@@ -154,7 +159,6 @@ export const en = {
   strategySelectionRequiredMessage: "Please select at least one strategy.",
   registrationRequestFailed: "Registration failed. Please try again shortly.",
   registrationRequestSent: "Registration request sent. Please wait for approval.",
-  uidAlertMessage: "UID verification may take up to 2 hours.",
   registrationRequestError: "An error occurred while sending the request.",
   uidLoginFailed: "Failed to load UID information. Please double-check.",
   uidLoginSuccess: "UID status updated successfully.",
@@ -170,10 +174,15 @@ export const en = {
   requestedStrategiesLabel: "Requested strategies",
   approvedStrategiesLabel: "Approved strategies",
   accessKeyLabel: "Access key",
-  uidAuthRequired: "Please authenticate with your UID.",
-  uidApprovalRequiredForApi: "API connections become available after your UID is approved.",
+  uidAuthRequired: "Please complete UID verification first.",
 
-  // Signal guidance
+  // Webhook & signals
+  webhookIndicatorHint: "Your personal webhook only delivers the strategies you selected. Use it directly inside TradingView.",
+  webhookPendingNotice: "Once approved your dedicated webhook URL becomes active.",
+  webhookLoginRequired: "Webhook access is unlocked after logging in with UID and receiving admin approval.",
+  webhookStrategiesTitle: "Subscribed strategies",
+  webhookNoStrategies: "No approved strategies yet.",
+
   signalFeedTitle: "Live Strategy Signals",
   signalLoginRequired: "Log in with your UID to view live strategy signals.",
   signalPendingMessage: "Waiting for admin approval. Signals will appear when you are approved.",

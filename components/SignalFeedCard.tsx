@@ -36,7 +36,8 @@ const SignalFeedCard: React.FC = () => {
     let stopped = false;
     const fetchSignals = async () => {
       try {
-        const res = await fetch(/api/user/signals?uid=&key=);
+        const url = `/api/user/signals?uid=${encodeURIComponent(uid)}&key=${encodeURIComponent(accessKey)}`;
+        const res = await fetch(url);
         if (res.status === 403) {
           if (!stopped) setError('forbidden');
           return;
@@ -45,7 +46,7 @@ const SignalFeedCard: React.FC = () => {
         const data = await res.json();
         if (!stopped && Array.isArray(data.signals) && data.signals.length) {
           setSignals((prev) => {
-            const merged = [...data.signals.reverse(), ...prev];
+            const merged = [...data.signals.slice().reverse(), ...prev];
             return merged.slice(0, 100);
           });
         }

@@ -16,12 +16,12 @@ export const ko = {
   disconnect: "연결 해제",
   refresh: "새로고침",
   connected: "연결됨",
-  disconnected: "연결 안됨",
-  enterApiCredentials: "API 키와 시크릿을 입력해주세요",
-  connectionSuccess: "API 연결 성공",
-  connectionFailed: "API 연결 실패",
+  disconnected: "연결되지 않음",
+  enterApiCredentials: "API 키와 시크릿을 입력해 주세요",
+  connectionSuccess: "API 연결에 성공했습니다",
+  connectionFailed: "API 연결에 실패했습니다",
   connectionError: "연결 중 오류가 발생했습니다",
-  invalidCredentials: "API 키가 잘못되었습니다",
+  invalidCredentials: "API 인증 정보가 올바르지 않습니다",
   
   // 계정 정보
   totalEstimatedAssets: "전체 추정 자산 (USDT)",
@@ -43,7 +43,7 @@ export const ko = {
   // 자산 정보
   totalAssets: "총 자산",
   available: "사용 가능",
-  positionMargin: "포지션 마진",
+  positionMargin: "포지션 증거금",
   orderMargin: "주문 마진",
   unrealizedPnl: "미실현 손익",
   locked: "잠김",
@@ -53,26 +53,26 @@ export const ko = {
   positionValue: "포지션 가치",
   
   // 포지션 대시보드
-  positionDashboard: "포지션 현황판",
+  positionDashboard: "포지션 대시보드",
   totalPositions: "총 포지션",
   totalInvestment: "총 투자금",
   totalPnl: "총 손익",
   currentValue: "현재 가치",
   profit: "수익",
-  loading: "로딩 중",
-  noActivePositions: "활성 포지션이 없습니다",
+  loading: "불러오는 중",
+  noActivePositions: "활성화된 포지션이 없습니다",
   quantity: "수량",
   entryPrice: "진입가",
   currentPrice: "현재가",
-  markPrice: "마크가격",
+  markPrice: "마크 가격",
   pnl: "손익",
   pnlPercent: "손익률",
-  size: "크기",
+  size: "포지션 규모",
   margin: "증거금",
   leverage: "레버리지",
   closePosition: "포지션 종료",
-  positionOpened: "포지션 진입",
-  positionClosed: "포지션 종료",
+  positionOpened: "포지션이 진입되었습니다",
+  positionClosed: "포지션이 종료되었습니다",
   long: "롱",
   short: "숏",
   noPositions: "열린 포지션이 없습니다",
@@ -80,18 +80,18 @@ export const ko = {
   // 거래 설정
   tradingSettings: "통합 거래 설정",
   autoTrading: "자동 거래",
-  autoTradingDesc: "웹훅 신호로 자동 거래 실행",
+  autoTradingDesc: "웹훅 신호로 자동 거래를 실행합니다",
   on: "ON",
   off: "OFF",
   defaultInvestmentAmount: "기본 투자 금액 (USDT)",
   defaultInvestmentHint: "각 신호당 기본 투자할 금액",
   defaultLeverage: "기본 레버리지 (배)",
   defaultLeverageHint: "신호에 레버리지가 없을 때 사용",
-  riskPerTrade: "거래당 리스크 (%)",
+  riskPerTrade: "거래당 위험도 (%)",
   expectedLoss: "예상 손실",
   riskManagement: "리스크 관리",
   maxDailyLoss: "일일 최대 손실 한도 (%)",
-  maxDailyLossHint: "한도 도달시 자동 거래 중지",
+  maxDailyLossHint: "한도에 도달하면 자동 거래가 중지됩니다",
   emergencyStop: "긴급 정지 모드 (모든 자동 거래 중지)",
   currentSettings: "현재 설정 요약",
   saveSettings: "설정 저장",
@@ -101,10 +101,9 @@ export const ko = {
   inactive: "비활성",
   
   // 웹훅
-<<<<<<< ours
   webhookSettings: "웹훅 설정",
-  webhookDescription: "JSON 신호를 보내 자동으로 거래를 실행합니다",
-  webhookUrlDesc: "TradingView Alert에서 사용할 URL:",
+  webhookDescription: "JSON 신호를 전송해 자동으로 거래를 실행합니다",
+  webhookUrlDesc: "TradingView 알림에서 사용할 URL:",
   webhookStatus: "상태:",
   activated: "활성화됨",
   deactivated: "비활성화됨",
@@ -114,52 +113,37 @@ export const ko = {
   stopWebhook: "서버 중지",
   webhookStarted: "웹훅 서버가 시작되었습니다",
   webhookStopped: "웹훅 서버가 중지되었습니다",
-  webhookJsonExample: "TradingView Alert JSON 예시:",
-  webhookHint: "TradingView에서 Alert 생성 → Webhook URL 입력 → JSON 메시지 설정",
+  webhookJsonExample: "TradingView 알림 JSON 예시:",
+  webhookHint: "TradingView에서 알림 생성 → Webhook URL 입력 → JSON 메시지 설정",
   urlCopied: "URL이 복사되었습니다",
-=======
-  webhookSettings: "신호 구독 안내",
-  webhookBroadcastInfo:
-    "관리자 페이지에서 대표 웹훅으로 받은 신호는 접속 여부와 관계없이 회원별로 자동 전달되며, 내가 선택한 전략만 수신됩니다. 별도의 웹훅 주소를 만들 필요가 없습니다.",
-  webhookPendingNotice: "승인이 완료되면 선택한 전략 신호가 자동으로 전달됩니다.",
-  webhookLoginRequired: "UID로 인증해주세요.",
-  webhookApprovedNotice: "승인이 완료되어 선택한 전략의 신호가 자동으로 수신됩니다.",
-  webhookStrategiesTitle: "구독 중인 전략",
-  webhookNoStrategies: "아직 승인된 전략이 없습니다.",
-  webhookSelectionReminder: "전략 변경이 필요하면 위의 UID 등록 카드에서 선택을 수정해 주세요.",
->>>>>>> theirs
   
   // 로그
   realtimeLogs: "실시간 로그",
-  totalLogs: "총 로그",
+  totalLogs: "전체 로그 수",
   realtime: "실시간",
-  autoScroll: "자동스크롤",
-  clear: "클리어",
-  refresh: "새로고침",
+  autoScroll: "자동 스크롤",
+  clear: "지우기",
   noLogs: "아직 로그가 없습니다.",
-  logsHint: "웹훅을 전송하거나 API를 호출해보세요.",
+  logsHint: "웹훅을 전송하거나 API를 호출해 보세요.",
   lastUpdate: "마지막 업데이트:",
   webhookLogs: "웹훅 로그",
 
-   // 계정 상세 정보
-   totalFuturesAssets: '전체 선물 자산',
-   availableForTrading: '거래 가능',
-   positionMarginDetail: '포지션 증거금',
-   unrealizedPnlDetail: '미실현 손익',
-   assetFormula: '총 자산 = 사용가능 + 포지션 증거금 + 미실현 손익',
-    assetBreakdown: '선물 + 현물 USDT + 마진 순자산 + 옵션',
-   unableToLoadFutures: '선물 계정 정보를 불러올 수 없습니다.',
-   noFundsInFutures: '선물 계정에 자금이 없는 경우,',
-   transferFromSpot: '현물에서 선물로 자금을 이체해주세요.',
+  // 계정 상세 정보
+  totalFuturesAssets: "전체 선물 자산",
+  availableForTrading: "거래 가능",
+  positionMarginDetail: "포지션 증거금",
+  unrealizedPnlDetail: "미실현 손익",
+  assetFormula: "총 자산 = 사용 가능 + 포지션 증거금 + 미실현 손익",
+  assetBreakdown: "선물 + 현물 USDT + 마진 순자산 + 옵션",
+  unableToLoadFutures: "선물 계정 정보를 불러올 수 없습니다.",
+  noFundsInFutures: "선물 계정에 자금이 없다면",
+  transferFromSpot: "현물에서 선물로 자금을 이체해 주세요.",
   
   // 기타
   noAssets: "자산이 없습니다",
   optionsNotActivated: "옵션 계정이 활성화되지 않았습니다",
-  fundTransferWarning: "선물 계정에 자금이 없습니다. 현물→선물로 자금을 이체해주세요.",
+  fundTransferWarning: "선물 계정에 자금이 없습니다. 현물 계정에서 선물 계정으로 이체해 주세요.",
   symbol: "심볼",
-<<<<<<< ours
-  investmentAmount: "투자금액"
-=======
   investmentAmount: "투자 금액",
 
   // UID & 등록
@@ -175,7 +159,6 @@ export const ko = {
   strategySelectionRequiredMessage: "최소 한 개 이상의 전략을 선택해 주세요.",
   registrationRequestFailed: "등록에 실패했습니다. 잠시 후 다시 시도해 주세요.",
   registrationRequestSent: "등록 요청을 전송했습니다. 승인까지 잠시 기다려 주세요.",
-  uidAlertMessage: "UID 인증은 최대 2시간 정도 걸립니다.",
   registrationRequestError: "요청 처리 중 오류가 발생했습니다.",
   uidLoginFailed: "UID 정보를 불러오지 못했습니다. 다시 확인해 주세요.",
   uidLoginSuccess: "UID 인증 정보가 업데이트되었습니다.",
@@ -191,10 +174,15 @@ export const ko = {
   requestedStrategiesLabel: "요청한 전략",
   approvedStrategiesLabel: "승인된 전략",
   accessKeyLabel: "접근 키",
-  uidAuthRequired: "UID로 인증해주세요.",
-  uidApprovalRequiredForApi: "UID 승인이 완료되면 API를 연결할 수 있습니다.",
+  uidAuthRequired: "UID로 인증을 완료해 주세요.",
 
-  // 신호 안내
+  // 웹훅 및 신호 안내
+  webhookIndicatorHint: "개인 전용 웹훅은 선택한 전략의 신호만 전달되며 TradingView에서 그대로 사용하면 됩니다.",
+  webhookPendingNotice: "승인이 완료되면 전용 웹훅 URL이 활성화됩니다.",
+  webhookLoginRequired: "UID 로그인 후 관리자 승인을 받아야 웹훅을 사용할 수 있습니다.",
+  webhookStrategiesTitle: "구독 중인 전략",
+  webhookNoStrategies: "아직 승인된 전략이 없습니다.",
+
   signalFeedTitle: "실시간 전략 신호",
   signalLoginRequired: "UID로 로그인하면 실시간 전략 신호를 확인할 수 있습니다.",
   signalPendingMessage: "관리자 승인을 기다리는 중입니다. 승인 후 신호가 표시됩니다.",
@@ -204,5 +192,4 @@ export const ko = {
   signalErrorForbidden: "접근 권한이 없습니다. UID 승인 상태를 확인해 주세요.",
   signalErrorGeneric: "신호를 불러오는 중 문제가 발생했습니다.",
   signalEmpty: "아직 수신된 신호가 없습니다."
->>>>>>> theirs
 };
