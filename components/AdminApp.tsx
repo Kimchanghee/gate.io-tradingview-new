@@ -44,7 +44,15 @@ interface AdminSignal {
 }
 
 const AdminApp: React.FC = () => {
-  const [token, setToken] = useState(() => localStorage.getItem('admin_token') || '');
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return window.localStorage.getItem('admin_token') || '';
+    } catch (err) {
+      console.error('Failed to read admin token from storage', err);
+      return '';
+    }
+  });
   const [inputToken, setInputToken] = useState('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,14 +69,12 @@ const AdminApp: React.FC = () => {
 
   const resetAdminState = useCallback(() => {
     setToken('');
-    try {
-      if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
+      try {
         window.localStorage.removeItem('admin_token');
-      } else {
-        localStorage.removeItem('admin_token');
+      } catch (err) {
+        console.error('Failed to clear admin token', err);
       }
-    } catch (err) {
-      console.error('Failed to clear admin token', err);
     }
     setOverview(null);
     setSignals([]);
@@ -198,7 +204,13 @@ const AdminApp: React.FC = () => {
       return;
     }
     const authToken = inputToken.trim();
-    localStorage.setItem('admin_token', authToken);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('admin_token', authToken);
+      } catch (err) {
+        console.error('Failed to persist admin token', err);
+      }
+    }
     setToken(authToken);
     setInputToken('');
     const latestOverview = await fetchOverview(authToken);
