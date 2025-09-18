@@ -44,19 +44,58 @@ interface AdminSignal {
 }
 
 const AdminApp: React.FC = () => {
-  const [token, setToken] = useState(() => localStorage.getItem('admin_token') || '');
+  const [token, setToken] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return window.localStorage.getItem('admin_token') || '';
+      } catch (err) {
+        console.error('Failed to read admin token', err);
+      }
+    }
+    return '';
+  });
   const [inputToken, setInputToken] = useState('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [signalStrategy, setSignalStrategy] = useState('default');
+  const [signalStrategy, setSignalStrategy] = useState('');
   const [signals, setSignals] = useState<AdminSignal[]>([]);
   const [addingStrategy, setAddingStrategy] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState('');
   const [newStrategyDesc, setNewStrategyDesc] = useState('');
   const [selectionMap, setSelectionMap] = useState<Record<string, string[]>>({});
+  const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null);
 
   const authorized = useMemo(() => Boolean(token), [token]);
+
+  const pendingUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'pending'),
+    [overview]
+  );
+  const approvedUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'approved'),
+    [overview]
+  );
+  const deniedUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'denied'),
+    [overview]
+  );
+
+  const resetAdminState = useCallback(() => {
+    setToken('');
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem('admin_token');
+      } catch (err) {
+        console.error('Failed to clear admin token', err);
+      }
+    }
+    setOverview(null);
+    setSignals([]);
+    setSelectionMap({});
+    setSignalStrategy('');
+    setOverviewUpdatedAt(null);
+  }, []);
 
   const buildHeaders = useCallback(
     (overrideToken?: string): Record<string, string> => {
@@ -70,6 +109,28 @@ const AdminApp: React.FC = () => {
     [token]
   );
 
+  const buildAdminUrl = useCallback(
+    (
+      path: string,
+      params?: Record<string, string | number | boolean | null | undefined>
+    ) => {
+      const searchParams = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            searchParams.set(key, String(value));
+          }
+        });
+      }
+      const basePath = path.startsWith('/') ? path : `/${path}`;
+      const query = searchParams.toString();
+      return query ? `/api/admin${basePath}?${query}` : `/api/admin${basePath}`;
+    },
+    []
+  );
+
+  const overviewUrl = useMemo(() => buildAdminUrl('/overview'), [buildAdminUrl]);
+
   const fetchOverview = useCallback(
     async (overrideToken?: string): Promise<OverviewResponse | null> => {
       const authToken = overrideToken ?? token;
@@ -77,11 +138,10 @@ const AdminApp: React.FC = () => {
       try {
         setLoading(true);
         setError('');
-        const res = await fetch('/api/admin/overview', { headers: buildHeaders(authToken) });
+        const res = await fetch(overviewUrl, { headers: buildHeaders(authToken) });
         if (res.status === 401) {
           setError('관리자 토큰이 유효하지 않습니다.');
-          setToken('');
-          localStorage.removeItem('admin_token');
+          resetAdminState();
           return null;
         }
         if (!res.ok) {
@@ -90,6 +150,7 @@ const AdminApp: React.FC = () => {
         }
         const data: OverviewResponse = await res.json();
         setOverview(data);
+        setOverviewUpdatedAt(Date.now());
         const nextSelection: Record<string, string[]> = {};
         data.users.forEach((user) => {
           if (user.status === 'pending') {
@@ -111,7 +172,7 @@ const AdminApp: React.FC = () => {
         setLoading(false);
       }
     },
-    [token, buildHeaders]
+    [token, buildHeaders, overviewUrl, resetAdminState]
   );
 
   const fetchSignals = useCallback(
@@ -119,28 +180,41 @@ const AdminApp: React.FC = () => {
       const authToken = overrideToken ?? token;
       if (!authToken || !strategyId) return;
       try {
-        const url = `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`;
-        const res = await fetch(url, { headers: buildHeaders(authToken) });
-        if (res.ok) {
-          const data = await res.json();
-          setSignals(Array.isArray(data.signals) ? data.signals.slice().reverse() : []);
+        const res = await fetch(
+          buildAdminUrl('/signals', { strategy: strategyId }),
+          { headers: buildHeaders(authToken) }
+        );
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          resetAdminState();
+          return;
         }
+        if (!res.ok) {
+          throw new Error('Failed to fetch signals');
+        }
+        const data = await res.json();
+        setSignals(Array.isArray(data.signals) ? data.signals.slice().reverse() : []);
       } catch (err) {
         console.error(err);
       }
     },
-    [token, buildHeaders]
+    [token, buildHeaders, buildAdminUrl, resetAdminState]
   );
 
   useEffect(() => {
     if (!token) return;
     fetchOverview();
-    const id = window.setInterval(fetchOverview, 15000);
+    if (typeof window === 'undefined') return;
+    const id = window.setInterval(() => {
+      fetchOverview();
+    }, 15000);
     return () => window.clearInterval(id);
   }, [token, fetchOverview]);
 
   useEffect(() => {
-    if (token) fetchSignals(signalStrategy);
+    if (token && signalStrategy) {
+      fetchSignals(signalStrategy);
+    }
   }, [token, signalStrategy, fetchSignals]);
 
   useEffect(() => {
@@ -158,7 +232,13 @@ const AdminApp: React.FC = () => {
       return;
     }
     const authToken = inputToken.trim();
-    localStorage.setItem('admin_token', authToken);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('admin_token', authToken);
+      } catch (err) {
+        console.error('Failed to persist admin token', err);
+      }
+    }
     setToken(authToken);
     setInputToken('');
     const latestOverview = await fetchOverview(authToken);
@@ -169,16 +249,13 @@ const AdminApp: React.FC = () => {
         : strategies[0].id;
       setSignalStrategy(nextStrategy);
       await fetchSignals(nextStrategy, authToken);
-    } else {
+    } else if (signalStrategy) {
       await fetchSignals(signalStrategy, authToken);
     }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_token');
-    setToken('');
-    setOverview(null);
-    setSignals([]);
+    resetAdminState();
   };
 
   const toggleSelection = (uid: string, strategyId: string) => {
@@ -199,11 +276,16 @@ const AdminApp: React.FC = () => {
       return;
     }
     try {
-      const res = await fetch('/api/admin/users/approve', {
+      const res = await fetch(buildAdminUrl('/users/approve'), {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({ uid, strategies: selected })
       });
+      if (res.status === 401) {
+        setError('관리자 토큰이 유효하지 않습니다.');
+        resetAdminState();
+        return;
+      }
       if (!res.ok) {
         setError('사용자 승인에 실패했습니다.');
         return;
@@ -217,11 +299,16 @@ const AdminApp: React.FC = () => {
 
   const denyUser = async (uid: string) => {
     try {
-      const res = await fetch('/api/admin/users/deny', {
+      const res = await fetch(buildAdminUrl('/users/deny'), {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({ uid })
       });
+      if (res.status === 401) {
+        setError('관리자 토큰이 유효하지 않습니다.');
+        resetAdminState();
+        return;
+      }
       if (!res.ok) {
         setError('사용자 거절에 실패했습니다.');
         return;
@@ -238,11 +325,16 @@ const AdminApp: React.FC = () => {
     if (!newStrategyName.trim()) return;
     try {
       setAddingStrategy(true);
-      const res = await fetch('/api/admin/strategies', {
+      const res = await fetch(buildAdminUrl('/strategies'), {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({ name: newStrategyName.trim(), description: newStrategyDesc.trim() })
       });
+      if (res.status === 401) {
+        setError('관리자 토큰이 유효하지 않습니다.');
+        resetAdminState();
+        return;
+      }
       if (!res.ok) {
         setError('전략 추가에 실패했습니다.');
         return;
@@ -260,11 +352,16 @@ const AdminApp: React.FC = () => {
 
   const toggleStrategyActive = async (strategy: AdminStrategy) => {
     try {
-      const res = await fetch(`/api/admin/strategies/${strategy.id}`, {
+      const res = await fetch(buildAdminUrl(`/strategies/${strategy.id}`), {
         method: 'PATCH',
         headers: buildHeaders(),
         body: JSON.stringify({ active: strategy.active === false })
       });
+      if (res.status === 401) {
+        setError('관리자 토큰이 유효하지 않습니다.');
+        resetAdminState();
+        return;
+      }
       if (!res.ok) {
         setError('전략 상태 변경에 실패했습니다.');
         return;
@@ -306,17 +403,17 @@ const AdminApp: React.FC = () => {
     );
   }
 
-  const pendingUsers = (overview?.users || []).filter((u) => u.status === 'pending');
-  const approvedUsers = (overview?.users || []).filter((u) => u.status === 'approved');
-  const deniedUsers = (overview?.users || []).filter((u) => u.status === 'denied');
+  const totalUsers = overview?.stats?.totalUsers ?? overview?.users?.length ?? 0;
+  const pendingCount = overview?.stats?.pending ?? pendingUsers.length;
+  const approvedCount = overview?.stats?.approved ?? approvedUsers.length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
         <h1 className="text-2xl font-bold">관리자 콘솔</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchOverview}
+            onClick={() => fetchOverview()}
             className="px-3 py-1 bg-gate-primary text-black rounded hover:bg-green-500 transition"
             disabled={loading}
           >
@@ -329,6 +426,25 @@ const AdminApp: React.FC = () => {
             로그아웃
           </button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card title="총 사용자 수" className="text-center">
+          <div className="text-3xl font-bold text-gate-primary">{totalUsers}</div>
+          <div className="text-xs text-gray-400 mt-2">등록된 전체 사용자 수</div>
+        </Card>
+        <Card title="승인 대기" className="text-center">
+          <div className="text-3xl font-bold text-yellow-300">{pendingCount}</div>
+          <div className="text-xs text-gray-400 mt-2">승인 대기 중인 사용자</div>
+        </Card>
+        <Card title="승인된 사용자" className="text-center">
+          <div className="text-3xl font-bold text-green-300">{approvedCount}</div>
+          <div className="text-xs text-gray-400 mt-2">
+            {overviewUpdatedAt
+              ? `마지막 업데이트: ${new Date(overviewUpdatedAt).toLocaleString()}`
+              : '업데이트 정보 없음'}
+          </div>
+        </Card>
       </div>
 
       {error && <div className="mb-4 text-red-400 text-sm">{error}</div>}
