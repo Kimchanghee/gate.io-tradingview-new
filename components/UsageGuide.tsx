@@ -1,58 +1,76 @@
 import React from 'react';
 import Card from './Card';
+import { useAppContext } from '../contexts/AppContext';
 
-interface GuideSection {
-  language: string;
+type GuideContent = {
+  title: string;
+  intro: string;
   steps: string[];
-}
+  tips?: string[];
+};
 
-const sections: GuideSection[] = [
-  {
-    language: '한국어',
+const guides: Record<string, GuideContent> = {
+  ko: {
+    title: '사용 가이드',
+    intro: 'UID 인증과 신호 구독을 빠르게 설정하려면 아래 순서를 따라 주세요.',
     steps: [
-      '상단에서 사용할 언어와 네트워크(메인넷/테스트넷)를 확인한 뒤, UID를 입력하고 "UID 로그인"을 눌러 본인 인증을 시작합니다.',
-      "받고 싶은 지표 신호 전략을 선택한 뒤 'UID 등록'을 누르면 최대 2시간 이내로 관리자 승인이 진행됩니다.",
-      '승인이 완료되면 접근 키가 발급되고, 선택한 전략만 내 계정으로 전달되도록 자동으로 연결됩니다.',
-      "UID 인증이 된 상태에서만 API 연결과 웹훅 복사, 신호 수신이 가능하니 인증 완료 후 'API 연결'을 진행하세요.",
-      "관리자는 브라우저 주소창 끝에 /admin 을 입력해 관리자 페이지에 접속하고, 관리자 토큰으로 로그인해 승인/거절 및 웹훅 신호 모니터링을 할 수 있습니다."
-    ]
+      '상단에서 언어와 네트워크(메인넷·테스트넷)를 확인한 뒤 UID를 입력하고 로그인합니다.',
+      '관심 있는 지표/전략을 선택해 등록 요청을 보내면 관리자가 승인 상태를 업데이트합니다.',
+      '승인 후에는 API 연결과 실시간 신호 확인이 가능하며, 웹훅 전달 여부는 관리자 콘솔에서만 관리됩니다.',
+    ],
+    tips: [
+      '사용자 화면에는 웹훅 설정이 없습니다. 전략별 웹훅 대상은 관리자 페이지에서만 조정합니다.',
+      '전략을 바꾸고 싶다면 다시 등록 카드에서 선택을 수정한 뒤 관리자에게 요청하세요.',
+    ],
   },
-  {
-    language: 'English',
+  en: {
+    title: 'Usage Guide',
+    intro: 'Follow these steps to request access and receive indicator signals without delay.',
     steps: [
-      'Check your preferred language and network (Mainnet/Testnet) at the top, enter your UID, and press "UID Login" to authenticate.',
-      "Choose the indicator strategies you want to follow, then press 'Register UID'. Approval may take up to two hours.",
-      'Once approved you will receive an access key, and only the strategies you selected will be relayed to your dashboard.',
-      'API connection, webhook copying, and live signals are available only after UID verification, so connect the API once authentication is done.',
-      'Admins can open the management console by adding /admin to the URL, sign in with the admin token, and approve, reject, or monitor webhook signals for every member.'
-    ]
+      'Double-check the language and network (Mainnet or Testnet), then enter your UID and press “UID Login”.',
+      'Pick the indicator strategies you want, submit the registration request, and wait for the admin approval notice.',
+      'Once approved you can connect the API and read live signals. Webhook delivery itself is managed only from the admin console.',
+    ],
+    tips: [
+      'End users no longer configure webhooks. The admin decides which strategies are delivered through the global webhook.',
+      'If you want different strategies later, update your selections and send a new request for the admin to review.',
+    ],
   },
-  {
-    language: '日本語',
+  ja: {
+    title: 'ご利用ガイド',
+    intro: 'UID 認証とシグナル配信をスムーズに開始するための手順です。',
     steps: [
-      '上部で言語とネットワーク（メインネット／テストネット）を確認し、UIDを入力して「UIDログイン」を押すと本人確認が始まります。',
-      '受信したい指標シグナル戦略を選択して「UID登録」を押すと、最長2時間ほどで管理者の承認が行われます。',
-      '承認されるとアクセスキーが発行され、選択した戦略だけがあなたのダッシュボードに配信されます。',
-      'UID認証が完了している場合にのみAPI接続・Webhookコピー・シグナル受信が可能なので、認証後にAPI接続を行ってください。',
-      '管理者はブラウザのURL末尾に /admin を追加して管理ページにアクセスし、管理者トークンでログインして会員の承認やWebhookシグナルの監視ができます。'
-    ]
-  }
-];
+      '画面上部で言語とネットワーク（メインネット / テストネット）を確認し、UID を入力して「UID ログイン」を押します。',
+      '受信したい指標・戦略を選択して申請を送信し、管理者からの承認通知を待ちます。',
+      '承認後に API を接続してリアルタイムシグナルを確認できます。Webhook の配信設定は管理者コンソールのみで変更されます。',
+    ],
+    tips: [
+      'ユーザー画面から Webhook を操作することはできません。どの戦略を配信するかは管理者がページ上で選択します。',
+      '別の戦略を希望する場合は再度選択を更新して申請し、管理者に承認を依頼してください。',
+    ],
+  },
+};
 
 const UsageGuide: React.FC = () => {
+  const { state } = useAppContext();
+  const guide = guides[state.language] ?? guides.ko;
+
   return (
-    <Card title="사용 가이드 / Usage Guide / ご利用ガイド" className="mb-5">
-      <div className="grid gap-4 md:grid-cols-3">
-        {sections.map((section) => (
-          <div key={section.language} className="bg-black/30 border border-gray-700 rounded-xl p-4 space-y-3">
-            <h3 className="text-base font-semibold text-gate-primary">{section.language}</h3>
-            <ol className="list-decimal list-inside text-sm text-gray-200 space-y-2">
-              {section.steps.map((step, index) => (
-                <li key={index}>{step}</li>
-              ))}
-            </ol>
+    <Card title={guide.title} className="mb-5">
+      <div className="space-y-4 text-sm text-gray-200">
+        <p className="text-gray-300">{guide.intro}</p>
+        <ol className="list-decimal list-inside space-y-2">
+          {guide.steps.map((step, index) => (
+            <li key={index}>{step}</li>
+          ))}
+        </ol>
+        {guide.tips && guide.tips.length > 0 && (
+          <div className="bg-black/30 border border-gray-700 rounded-lg p-3 space-y-1 text-xs text-gray-400">
+            {guide.tips.map((tip, index) => (
+              <p key={index}>• {tip}</p>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </Card>
   );

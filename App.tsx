@@ -2,9 +2,7 @@
 import Header from './components/Header';
 import PromoBanner from './components/PromoBanner';
 import ApiSettingsCard from './components/ApiSettingsCard';
-import GlobalTradingSettingsCard from './components/GlobalTradingSettingsCard';
 import PositionDashboard from './components/PositionDashboard';
-import WebhookCard from './components/WebhookCard';
 import LogsCard from './components/LogsCard';
 import NotificationHandler from './components/NotificationHandler';
 import AdminApp from './components/AdminApp';
@@ -31,17 +29,12 @@ const App: React.FC = () => {
             <RegistrationCard />
             <SignalFeedCard />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+            <div className="mb-5">
               <ApiSettingsCard />
-              <GlobalTradingSettingsCard />
             </div>
 
             <div className="mb-5">
               <PositionDashboard />
-            </div>
-
-            <div className="mb-5">
-              <WebhookCard />
             </div>
 
             <div className="mb-5">
