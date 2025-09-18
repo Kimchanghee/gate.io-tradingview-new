@@ -7,6 +7,21 @@ export interface Settings {
     leverage: number;
 }
 
+export type UserStatus = 'not_registered' | 'pending' | 'approved' | 'denied' | string;
+
+export interface UserStrategy {
+    id: string;
+    name: string;
+}
+
+export interface UserState {
+    uid: string;
+    status: UserStatus;
+    accessKey: string | null;
+    isLoggedIn: boolean;
+    approvedStrategies: UserStrategy[];
+}
+
 export interface Position {
     contract: string;
     size: number;

@@ -1,5 +1,6 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Card from './Card';
+import { useAppContext } from '../contexts/AppContext';
 
 interface SignalItem {
   id: string;
@@ -13,21 +14,32 @@ interface SignalItem {
   strategyId?: string;
 }
 
+type SignalError = 'none' | 'forbidden' | 'generic';
+
 const SignalFeedCard: React.FC = () => {
+  const { state, translate } = useAppContext();
   const [signals, setSignals] = useState<SignalItem[]>([]);
-  const [error, setError] = useState('');
-  const uid = useMemo(() => localStorage.getItem('user_uid') || '', []);
-  const accessKey = useMemo(() => localStorage.getItem('user_access_key') || '', []);
+  const [error, setError] = useState<SignalError>('none');
+
+  const uid = state.user.uid;
+  const accessKey = state.user.accessKey || '';
+  const uidReady = state.user.isLoggedIn;
+  const isApproved = state.user.status === 'approved';
+  const allowedStrategies = useMemo(() => state.user.approvedStrategies || [], [state.user.approvedStrategies]);
 
   useEffect(() => {
-    if (!uid || !accessKey) return;
+    if (!uid || !accessKey || !isApproved) {
+      setSignals([]);
+      setError('none');
+      return;
+    }
     let stopped = false;
     const fetchSignals = async () => {
       try {
         const url = `/api/user/signals?uid=${encodeURIComponent(uid)}&key=${encodeURIComponent(accessKey)}`;
         const res = await fetch(url);
         if (res.status === 403) {
-          if (!stopped) setError('접근 권한이 없습니다. 관리자 승인을 확인해주세요.');
+          if (!stopped) setError('forbidden');
           return;
         }
         if (!res.ok) return;
@@ -40,6 +52,7 @@ const SignalFeedCard: React.FC = () => {
         }
       } catch (err) {
         console.error(err);
+        if (!stopped) setError('generic');
       }
     };
     fetchSignals();
@@ -48,40 +61,67 @@ const SignalFeedCard: React.FC = () => {
       stopped = true;
       window.clearInterval(id);
     };
-  }, [uid, accessKey]);
+  }, [uid, accessKey, isApproved]);
 
-  if (!uid) {
-    return null;
-  }
+  const errorMessage = error === 'forbidden'
+    ? translate('signalErrorForbidden')
+    : error === 'generic'
+      ? translate('signalErrorGeneric')
+      : '';
 
   return (
-    <Card title="승인된 전략 신호" className="mb-5">
-      {!accessKey && (
-        <div className="text-sm text-gray-400">승인 대기 중입니다. 관리자가 승인을 완료하면 신호가 표시됩니다.</div>
-      )}
-      {error && <div className="text-sm text-red-400 mb-2">{error}</div>}
-      {accessKey && (
-        <div className="max-h-72 overflow-y-auto space-y-2 text-sm">
-          {signals.length === 0 ? (
-            <div className="text-gray-500">아직 수신된 신호가 없습니다.</div>
-          ) : (
-            signals.map((signal) => (
-              <div key={signal.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>{signal.strategyId || '-'}</span>
-                  <span>{new Date(signal.timestamp).toLocaleString()}</span>
-                </div>
-                <div className="text-sm font-semibold text-gate-text">
-                  {signal.symbol || '---'} ({signal.action} {signal.side})
-                </div>
-                <div className="text-xs text-gray-500">
-                  size={signal.size ?? '-'} | leverage={signal.leverage ?? '-'} | status={signal.status}
-                </div>
-              </div>
-            ))
-          )}
+    <Card title={translate('signalFeedTitle')} className="mb-5">
+      <div className="space-y-3 text-sm">
+        {!uidReady && (
+          <div className="text-gray-400">{translate('signalLoginRequired')}</div>
+        )}
+
+        {uidReady && state.user.status === 'pending' && (
+          <div className="text-yellow-200">{translate('signalPendingMessage')}</div>
+        )}
+
+        {state.user.status === 'denied' && (
+          <div className="text-red-300">{translate('signalDeniedMessage')}</div>
+        )}
+
+        <div className="text-xs text-gray-400 uppercase tracking-wider">
+          {translate('signalStrategiesTitle')}
         </div>
-      )}
+        {allowedStrategies.length > 0 ? (
+          <ul className="text-xs text-gray-300 list-disc list-inside space-y-1">
+            {allowedStrategies.map((strategy) => (
+              <li key={strategy.id}>{strategy.name}</li>
+            ))}
+          </ul>
+        ) : (
+          <div className="text-xs text-gray-500">{translate('signalNoStrategies')}</div>
+        )}
+
+        {errorMessage && <div className="text-xs text-red-400">{errorMessage}</div>}
+
+        {uidReady && accessKey && isApproved && (
+          <div className="max-h-72 overflow-y-auto space-y-2 text-sm">
+            {signals.length === 0 ? (
+              <div className="text-gray-500">{translate('signalEmpty')}</div>
+            ) : (
+              signals.map((signal) => (
+                <div key={signal.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>{signal.strategyId || '-'}</span>
+                    <span>{new Date(signal.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="text-sm font-semibold text-gate-text">
+                    {signal.symbol || '---'} ({signal.action} {signal.side})
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    size={signal.size ?? '-'} | leverage={signal.leverage ?? '-'} | status={signal.status}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
     </Card>
   );
 };
