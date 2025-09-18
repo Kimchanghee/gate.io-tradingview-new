@@ -1,185 +1,58 @@
 import React from 'react';
 import Card from './Card';
-import { useAppContext } from '../contexts/AppContext';
-import { Language } from '../types';
 
-interface GuideStep {
-  title: string;
-  description: string;
+interface GuideSection {
+  language: string;
+  steps: string[];
 }
 
-interface GuideCopy {
-  cardTitle: string;
-  intro: string;
-  stepLabel: string;
-  steps: GuideStep[];
-  highlight: string;
-  adminTitle: string;
-  adminSteps: string[];
-}
-
-const GUIDE_CONTENT: Record<Language, GuideCopy> = {
-  ko: {
-    cardTitle: '사용 가이드',
-    intro: 'UID 인증부터 승인된 전략 신호 활용까지 다음 단계를 차례로 따라주세요.',
-    stepLabel: '단계',
+const sections: GuideSection[] = [
+  {
+    language: '한국어',
     steps: [
-      {
-        title: 'UID 로그인 시작',
-        description:
-          '상단 헤더에서 사용할 언어와 네트워크(메인넷·테스트넷)를 확인한 뒤 UID를 입력하고 "UID 로그인"을 눌러 인증을 시작합니다.'
-      },
-      {
-        title: '전략 선택 및 신청',
-        description:
-          '받고 싶은 지표 신호 전략을 선택한 후 "UID 등록"을 누르면 신청이 접수되며, 클릭 즉시 "UID 인증은 최대 2시간 정도 걸립니다" 알림이 표시됩니다.'
-      },
-      {
-        title: '승인 진행 상황 확인',
-        description:
-          '신청한 UID는 "승인 대기" 상태로 표시되며 관리자가 승인하면 Access Key와 승인된 전략 목록이 자동으로 업데이트됩니다. 거절된 경우에는 안내 메시지가 나타납니다.'
-      },
-      {
-        title: 'API 연결 준비',
-        description:
-          'UID로 로그인하면 "API 연결" 버튼이 활성화됩니다. 선택한 네트워크(메인넷·테스트넷)를 다시 확인한 뒤 Gate.io API Key와 Secret을 입력해 연동하세요.'
-      },
-      {
-        title: '실시간 신호 활용',
-        description:
-          '관리자 페이지 대표 웹훅으로 전달된 신호는 접속 여부와 관계없이 자동으로 브로드캐스트되며, 실시간 신호 카드에는 내가 선택해 승인받은 전략 신호만 노출됩니다.'
-      }
-    ],
-    highlight: '알림: UID 인증은 최대 2시간까지 소요될 수 있으니 승인 완료 안내가 올 때까지 기다려 주세요.',
-    adminTitle: '관리자 빠른 안내',
-    adminSteps: [
-      '브라우저 주소창 끝에 /admin 을 붙여 관리자 페이지에 접속하세요.',
-      '백엔드에서 발급받은 ADMIN_SECRET 값과 동일한 관리자 토큰으로 로그인하면 승인 대기 목록을 열 수 있습니다.',
-      '신청자의 전략을 확인해 승인·거절하고, 대표 웹훅으로 들어온 신호를 선택한 회원들에게 전송할 수 있습니다.'
+      '상단에서 사용할 언어와 네트워크(메인넷/테스트넷)를 확인한 뒤, UID를 입력하고 "UID 로그인"을 눌러 본인 인증을 시작합니다.',
+      "받고 싶은 지표 신호 전략을 선택한 뒤 'UID 등록'을 누르면 최대 2시간 이내로 관리자 승인이 진행됩니다.",
+      '승인이 완료되면 접근 키가 발급되고, 선택한 전략만 내 계정으로 전달되도록 자동으로 연결됩니다.',
+      "UID 인증이 된 상태에서만 API 연결과 웹훅 복사, 신호 수신이 가능하니 인증 완료 후 'API 연결'을 진행하세요.",
+      "관리자는 브라우저 주소창 끝에 /admin 을 입력해 관리자 페이지에 접속하고, 관리자 토큰으로 로그인해 승인/거절 및 웹훅 신호 모니터링을 할 수 있습니다."
     ]
   },
-  en: {
-    cardTitle: 'Usage Guide',
-    intro: 'Follow these steps to move from UID verification to receiving strategy signals.',
-    stepLabel: 'Step',
+  {
+    language: 'English',
     steps: [
-      {
-        title: 'Start with UID Login',
-        description:
-          'Check your preferred language and network (Mainnet/Testnet) in the header, enter your UID, and press "UID Login" to begin authentication.'
-      },
-      {
-        title: 'Choose Strategies and Apply',
-        description:
-          "Select the indicator strategies you want to follow and press 'Register UID'. A warning pops up noting that approval may take up to two hours."
-      },
-      {
-        title: 'Track Your Approval Status',
-        description:
-          'After submitting, the status changes to "Pending". Once the admin approves you, the Access Key and approved strategy list are updated. If denied, you will see a helpful notice.'
-      },
-      {
-        title: 'Prepare the API Connection',
-        description:
-          'Once you log in with your UID, the "Connect API" button becomes active. Double-check the selected network (Mainnet/Testnet) and enter your Gate.io API Key and Secret to connect.'
-      },
-      {
-        title: 'Use Live Signals',
-        description:
-          'Signals sent through the admin console’s master webhook are broadcast automatically, even if you are not connected. The live signal card only shows the strategies you opted into so you can react quickly.'
-      }
-    ],
-    highlight: 'Reminder: UID verification can take up to two hours. Please wait until the approval notification arrives.',
-    adminTitle: 'Quick guide for admins',
-    adminSteps: [
-      'Append /admin to the site URL to open the management console.',
-      'Sign in with the admin token that matches the backend ADMIN_SECRET to unlock the pending request list.',
-      'Review each UID request, approve or deny the selected strategies, and relay master-webhook signals to subscribed members.'
+      'Check your preferred language and network (Mainnet/Testnet) at the top, enter your UID, and press "UID Login" to authenticate.',
+      "Choose the indicator strategies you want to follow, then press 'Register UID'. Approval may take up to two hours.",
+      'Once approved you will receive an access key, and only the strategies you selected will be relayed to your dashboard.',
+      'API connection, webhook copying, and live signals are available only after UID verification, so connect the API once authentication is done.',
+      'Admins can open the management console by adding /admin to the URL, sign in with the admin token, and approve, reject, or monitor webhook signals for every member.'
     ]
   },
-  ja: {
-    cardTitle: 'ご利用ガイド',
-    intro: 'UID認証から戦略シグナル受信までの流れを以下のステップで確認してください。',
-    stepLabel: 'ステップ',
+  {
+    language: '日本語',
     steps: [
-      {
-        title: 'UIDログインを開始',
-        description:
-          'ヘッダーで使用する言語とネットワーク（メインネット／テストネット）を確認し、UIDを入力して「UIDログイン」を押して認証を始めます。'
-      },
-      {
-        title: '戦略を選んで申請',
-        description:
-          '受信したい指標シグナル戦略を選択して「UID登録」を押すと申請が送信されます。最大2時間かかるという警告メッセージが表示されます。'
-      },
-      {
-        title: '承認状況をチェック',
-        description:
-          '申請後はステータスが「承認待ち」と表示され、管理者が許可すると「承認済み」に変わり、アクセスキーと承認済み戦略の一覧が更新されます。却下された場合は案内メッセージが表示されます。'
-      },
-      {
-        title: 'API接続の準備',
-        description:
-          'UIDでログインすると「API接続」ボタンが有効になります。選択中のネットワーク（メインネット／テストネット）を再確認し、Gate.ioのAPI KeyとSecretを入力して接続してください。'
-      },
-      {
-        title: 'ライブシグナルを活用',
-        description:
-          '管理者コンソールの代表Webhookに届いたシグナルは、ログインしていなくても自動で配信されます。ライブシグナルカードでは自分が選んだ戦略の情報だけを確認できます。'
-      }
-    ],
-    highlight: 'ご注意: UID認証には最大2時間ほどかかる場合があります。承認完了の通知が届くまでお待ちください。',
-    adminTitle: '管理者向けの簡単な流れ',
-    adminSteps: [
-      'URLの末尾に /admin を付けて管理コンソールを開きます。',
-      'バックエンドの ADMIN_SECRET と同じ管理者トークンでサインインすると承認待ちリストが表示されます。',
-      '各UID申請を確認して承認・却下を行い、代表Webhookに届いたシグナルを購読中の会員へ配信します。'
+      '上部で言語とネットワーク（メインネット／テストネット）を確認し、UIDを入力して「UIDログイン」を押すと本人確認が始まります。',
+      '受信したい指標シグナル戦略を選択して「UID登録」を押すと、最長2時間ほどで管理者の承認が行われます。',
+      '承認されるとアクセスキーが発行され、選択した戦略だけがあなたのダッシュボードに配信されます。',
+      'UID認証が完了している場合にのみAPI接続・Webhookコピー・シグナル受信が可能なので、認証後にAPI接続を行ってください。',
+      '管理者はブラウザのURL末尾に /admin を追加して管理ページにアクセスし、管理者トークンでログインして会員の承認やWebhookシグナルの監視ができます。'
     ]
   }
-};
+];
 
 const UsageGuide: React.FC = () => {
-  const { state } = useAppContext();
-  const content = GUIDE_CONTENT[state.language] ?? GUIDE_CONTENT.ko;
-
   return (
-    <Card title={content.cardTitle} className="mb-5">
-      <div className="space-y-6">
-        <p className="text-sm leading-relaxed text-gray-200">{content.intro}</p>
-
-        <div className="space-y-4">
-          {content.steps.map((step, index) => (
-            <div
-              key={step.title}
-              className="flex h-full gap-4 rounded-xl border border-gray-700 bg-black/30 p-4 shadow-inner"
-            >
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gate-primary/20 text-base font-semibold text-gate-primary">
-                {index + 1}
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-gate-primary/80">
-                  {content.stepLabel} {index + 1}
-                </span>
-                <h3 className="text-base font-semibold text-white">{step.title}</h3>
-                <p className="text-sm leading-relaxed text-gray-200">{step.description}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-xl border-l-4 border-gate-primary bg-black/40 p-4 text-sm leading-relaxed text-gray-100">
-          {content.highlight}
-        </div>
-
-        <div className="rounded-xl border border-gray-700 bg-black/30 p-4 space-y-3">
-          <h4 className="text-sm font-semibold text-gate-primary">{content.adminTitle}</h4>
-          <ol className="list-decimal list-inside space-y-1 text-sm leading-relaxed text-gray-200">
-            {content.adminSteps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-        </div>
-
+    <Card title="사용 가이드 / Usage Guide / ご利用ガイド" className="mb-5">
+      <div className="grid gap-4 md:grid-cols-3">
+        {sections.map((section) => (
+          <div key={section.language} className="bg-black/30 border border-gray-700 rounded-xl p-4 space-y-3">
+            <h3 className="text-base font-semibold text-gate-primary">{section.language}</h3>
+            <ol className="list-decimal list-inside text-sm text-gray-200 space-y-2">
+              {section.steps.map((step, index) => (
+                <li key={index}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        ))}
       </div>
     </Card>
   );
