@@ -123,7 +123,6 @@ export const ko = {
   realtime: "실시간",
   autoScroll: "자동스크롤",
   clear: "클리어",
-  refresh: "새로고침",
   noLogs: "아직 로그가 없습니다.",
   logsHint: "웹훅을 전송하거나 API를 호출해보세요.",
   lastUpdate: "마지막 업데이트:",

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from './Card';
 
 interface AdminStrategy {
@@ -55,55 +55,92 @@ const AdminApp: React.FC = () => {
   const [newStrategyName, setNewStrategyName] = useState('');
   const [newStrategyDesc, setNewStrategyDesc] = useState('');
   const [selectionMap, setSelectionMap] = useState<Record<string, string[]>>({});
+  const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null);
 
   const authorized = useMemo(() => Boolean(token), [token]);
 
-  const buildHeaders = useCallback(() => {
-    if (!token) return {};
-    return { 'Content-Type': 'application/json', 'x-admin-token': token } as Record<string, string>;
-  }, [token]);
+  const buildHeaders = useCallback(
+    (overrideToken?: string): Record<string, string> => {
+      const authToken = overrideToken ?? token;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['x-admin-token'] = authToken;
+      }
+      return headers;
+    },
+    [token]
+  );
 
-  const fetchOverview = useCallback(async () => {
-    if (!token) return;
-    try {
-      setLoading(true);
-      setError('');
-      const res = await fetch('/api/admin/overview', { headers: buildHeaders() });
-      if (res.status === 401) {
-        setError('관리자 토큰이 유효하지 않습니다.');
-        setToken('');
-        localStorage.removeItem('admin_token');
-        return;
-      }
-      if (!res.ok) {
-        setError('관리자 데이터를 불러오지 못했습니다.');
-        return;
-      }
-      const data: OverviewResponse = await res.json();
-      setOverview(data);
-      const nextSelection: Record<string, string[]> = {};
-      data.users.forEach((user) => {
-        if (user.status === 'pending') {
-          nextSelection[user.uid] = [...(user.requestedStrategies || [])];
+  const fetchOverview = useCallback(
+    async (overrideToken?: string): Promise<OverviewResponse | null> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken) return null;
+      try {
+        setLoading(true);
+        setError('');
+        const res = await fetch('/api/admin/overview', { headers: buildHeaders(authToken) });
+        if (res.status === 401) {
+          setError('관리자 토큰이 유효하지 않습니다.');
+          setToken('');
+          localStorage.removeItem('admin_token');
+          setOverview(null);
+          setSignals([]);
+          setSelectionMap({});
+          setOverviewUpdatedAt(null);
+          return null;
         }
-      });
-      setSelectionMap((prev) => ({ ...nextSelection, ...prev }));
-    } catch (err) {
-      console.error(err);
-      setError('관리자 데이터를 불러오는 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, buildHeaders]);
+        if (!res.ok) {
+          setError('관리자 데이터를 불러오지 못했습니다.');
+          return null;
+        }
+        const data: OverviewResponse = await res.json();
+        setOverview(data);
+        setOverviewUpdatedAt(Date.now());
+        const nextSelection: Record<string, string[]> = {};
+        data.users.forEach((user) => {
+          if (user.status === 'pending') {
+            nextSelection[user.uid] = [...(user.requestedStrategies || [])];
+          }
+        });
+        setSelectionMap((prev) => {
+          const preserved = Object.fromEntries(
+            Object.entries(prev).filter(([uid]) => nextSelection[uid])
+          ) as Record<string, string[]>;
+          return { ...nextSelection, ...preserved };
+        });
+        return data;
+      } catch (err) {
+        console.error(err);
+        setError('관리자 데이터를 불러오는 중 오류가 발생했습니다.');
+        setOverviewUpdatedAt(null);
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token, buildHeaders]
+  );
 
   const fetchSignals = useCallback(
-    async (strategyId: string) => {
-      if (!token) return;
+    async (strategyId: string, overrideToken?: string): Promise<void> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken || !strategyId) return;
       try {
-        const res = await fetch(/api/admin/signals?strategy=, { headers: buildHeaders() });
+        const url = `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`;
+        const res = await fetch(url, { headers: buildHeaders(authToken) });
+        if (res.status === 401) {
+          setError('세션이 만료되었습니다. 다시 로그인해주세요.');
+          setToken('');
+          localStorage.removeItem('admin_token');
+          setOverview(null);
+          setSignals([]);
+          setSelectionMap({});
+          setOverviewUpdatedAt(null);
+          return;
+        }
         if (res.ok) {
           const data = await res.json();
-          setSignals(Array.isArray(data.signals) ? data.signals.reverse() : []);
+          setSignals(Array.isArray(data.signals) ? data.signals.slice().reverse() : []);
         }
       } catch (err) {
         console.error(err);
@@ -115,7 +152,9 @@ const AdminApp: React.FC = () => {
   useEffect(() => {
     if (!token) return;
     fetchOverview();
-    const id = window.setInterval(fetchOverview, 15000);
+    const id = window.setInterval(() => {
+      fetchOverview();
+    }, 15000);
     return () => window.clearInterval(id);
   }, [token, fetchOverview]);
 
@@ -123,17 +162,35 @@ const AdminApp: React.FC = () => {
     if (token) fetchSignals(signalStrategy);
   }, [token, signalStrategy, fetchSignals]);
 
+  useEffect(() => {
+    if (!overview?.strategies?.length) return;
+    const exists = overview.strategies.some((s) => s.id === signalStrategy);
+    if (!exists) {
+      setSignalStrategy(overview.strategies[0].id);
+    }
+  }, [overview, signalStrategy]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputToken.trim()) {
       setError('토큰을 입력해주세요.');
       return;
     }
-    localStorage.setItem('admin_token', inputToken.trim());
-    setToken(inputToken.trim());
+    const authToken = inputToken.trim();
+    localStorage.setItem('admin_token', authToken);
+    setToken(authToken);
     setInputToken('');
-    await fetchOverview();
-    await fetchSignals(signalStrategy);
+    const latestOverview = await fetchOverview(authToken);
+    const strategies = latestOverview?.strategies || overview?.strategies || [];
+    if (strategies.length) {
+      const nextStrategy = strategies.some((s) => s.id === signalStrategy)
+        ? signalStrategy
+        : strategies[0].id;
+      setSignalStrategy(nextStrategy);
+      await fetchSignals(nextStrategy, authToken);
+    } else {
+      await fetchSignals(signalStrategy, authToken);
+    }
   };
 
   const handleLogout = () => {
@@ -141,6 +198,17 @@ const AdminApp: React.FC = () => {
     setToken('');
     setOverview(null);
     setSignals([]);
+    setSelectionMap({});
+    setSignalStrategy('default');
+    setError('');
+    setOverviewUpdatedAt(null);
+  };
+
+  const handleManualRefresh = async () => {
+    await fetchOverview();
+    if (signalStrategy) {
+      await fetchSignals(signalStrategy);
+    }
   };
 
   const toggleSelection = (uid: string, strategyId: string) => {
@@ -222,10 +290,10 @@ const AdminApp: React.FC = () => {
 
   const toggleStrategyActive = async (strategy: AdminStrategy) => {
     try {
-      const res = await fetch(/api/admin/strategies/, {
+      const res = await fetch(`/api/admin/strategies/${strategy.id}`, {
         method: 'PATCH',
         headers: buildHeaders(),
-        body: JSON.stringify({ active: !(strategy.active !== false ? true : false) })
+        body: JSON.stringify({ active: strategy.active === false })
       });
       if (!res.ok) {
         setError('전략 상태 변경에 실패했습니다.');
@@ -268,9 +336,23 @@ const AdminApp: React.FC = () => {
     );
   }
 
-  const pendingUsers = (overview?.users || []).filter((u) => u.status === 'pending');
-  const approvedUsers = (overview?.users || []).filter((u) => u.status === 'approved');
-  const deniedUsers = (overview?.users || []).filter((u) => u.status === 'denied');
+  const pendingUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'pending'),
+    [overview]
+  );
+  const approvedUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'approved'),
+    [overview]
+  );
+  const deniedUsers = useMemo(
+    () => (overview?.users || []).filter((u) => u.status === 'denied'),
+    [overview]
+  );
+  const activeStrategyCount = useMemo(
+    () => (overview?.strategies || []).filter((strategy) => strategy.active !== false).length,
+    [overview]
+  );
+  const lastUpdatedLabel = overviewUpdatedAt ? new Date(overviewUpdatedAt).toLocaleString() : '-';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
@@ -278,7 +360,7 @@ const AdminApp: React.FC = () => {
         <h1 className="text-2xl font-bold">관리자 콘솔</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchOverview}
+            onClick={handleManualRefresh}
             className="px-3 py-1 bg-gate-primary text-black rounded hover:bg-green-500 transition"
             disabled={loading}
           >
@@ -293,9 +375,49 @@ const AdminApp: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 text-red-400 text-sm">{error}</div>
-      )}
+      {error && <div className="mb-4 text-red-400 text-sm">{error}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card title="개요" className="space-y-2">
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>총 사용자</span>
+            <span>{overview?.stats?.totalUsers ?? '-'}</span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>승인 대기</span>
+            <span>{overview?.stats?.pending ?? pendingUsers.length}</span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>승인됨</span>
+            <span>{overview?.stats?.approved ?? approvedUsers.length}</span>
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 pt-2 border-t border-gray-800">
+            <span>마지막 업데이트</span>
+            <span>{lastUpdatedLabel}</span>
+          </div>
+        </Card>
+        <Card title="전략 요약" className="space-y-2">
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>전체 전략</span>
+            <span>{overview?.strategies?.length ?? 0}</span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>활성 전략</span>
+            <span>{activeStrategyCount}</span>
+          </div>
+          <div className="text-xs text-gray-500">
+            토글 버튼으로 전략 활성 상태를 변경할 수 있습니다.
+          </div>
+        </Card>
+        <Card title="세션" className="space-y-2">
+          <div className="text-sm text-gray-300">
+            현재 토큰: {token ? '저장됨' : '없음'}
+          </div>
+          <div className="text-xs text-gray-500">
+            새로고침 버튼을 누르면 개요와 신호가 즉시 갱신됩니다.
+          </div>
+        </Card>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card title="전략 관리" className="space-y-4">
@@ -333,7 +455,13 @@ const AdminApp: React.FC = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={	ext-xs px-2 py-0.5 rounded }>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded border ${
+                      strategy.active !== false
+                        ? 'bg-green-500/20 border-green-500/50 text-green-200'
+                        : 'bg-gray-800 border-gray-600 text-gray-300'
+                    }`}
+                  >
                     {strategy.active !== false ? '활성' : '비활성'}
                   </span>
                   <button
@@ -419,7 +547,10 @@ const AdminApp: React.FC = () => {
                 <div className="text-xs text-gray-400">전략 선택:</div>
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(overview?.strategies || []).map((strategy) => (
-                    <label key={${user.uid}-} className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded">
+                    <label
+                      key={`${user.uid}-${strategy.id}`}
+                      className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded"
+                    >
                       <input
                         type="checkbox"
                         checked={(selectionMap[user.uid] || []).includes(strategy.id)}
