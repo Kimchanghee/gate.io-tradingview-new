@@ -48,7 +48,7 @@ const i18n: Record<Lang, Record<string, string>> = {
 
     syncing: '동기화 중...',
 
-    auto: '自動取引',
+    auto: '자동 거래',
 
     refreshing: '데이터 새로고침 중...',
 
@@ -70,13 +70,13 @@ const i18n: Record<Lang, Record<string, string>> = {
 
     tableTitle: '최근 신호 타임라인',
 
-    columnTime: '時間',
+    columnTime: '시간',
 
     columnSymbol: '심볼',
 
     columnAction: '액션',
 
-    columnSide: '方向',
+    columnSide: '방향',
 
     columnSize: '계약수',
 
@@ -88,7 +88,7 @@ const i18n: Record<Lang, Record<string, string>> = {
 
     leverageLabel: '레버리지',
 
-    sideLabel: '方向',
+    sideLabel: '방향',
 
     actionLabel: '액션',
 
@@ -96,7 +96,7 @@ const i18n: Record<Lang, Record<string, string>> = {
 
     autoRefreshEvery: '갱신 주기',
 
-    symbolUnknown: '未設定'
+    symbolUnknown: '미설정'
 
   },
 
@@ -236,7 +236,7 @@ const STATUS_LABELS: Record<Lang, Record<SignalStatus, string>> = {
 
     failed: '실패',
 
-    stored: '대기',
+    stored: '저장됨',
 
     pending: '대기',
 
@@ -268,15 +268,15 @@ const STATUS_LABELS: Record<Lang, Record<SignalStatus, string>> = {
 
   ja: {
 
-    executed: '체결',
+    executed: '約定',
 
-    failed: '실패',
+    failed: '失敗',
 
-    stored: '대기',
+    stored: '保留',
 
-    pending: '대기',
+    pending: '待機',
 
-    invalid: '무효',
+    invalid: '無効',
 
     disabled: '自動OFF',
 
@@ -702,13 +702,39 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
         const response = await fetch(`/api/webhook/signals?id=${encodeURIComponent(id)}`);
 
-        if (!response.ok) throw new Error('failed to fetch signals');
+        if (!response.ok) throw new Error(`failed to fetch signals: ${response.status}`);
 
-        const data = await response.json();
+        const raw = await response.text();
 
         if (!active) return;
 
-        const list = Array.isArray(data.signals) ? data.signals : [];
+        if (!raw.trim()) {
+
+          setSignals([]);
+
+          setLastUpdated(new Date().toISOString());
+
+          return;
+
+        }
+
+        let parsed: unknown;
+
+        try {
+
+          parsed = JSON.parse(raw);
+
+        } catch (parseError) {
+
+          console.warn('Received invalid JSON for webhook signals', parseError);
+
+          return;
+
+        }
+
+        const parsedData = parsed as { signals?: Signal[] };
+
+        const list = Array.isArray(parsedData.signals) ? parsedData.signals : [];
 
         setSignals(list);
 
@@ -866,7 +892,7 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
     if (typeof signal.leverage === 'number') parts.push(`${t.leverageLabel}: ${signal.leverage}x`);
 
-    return parts.length ? parts.join(' ? ') : STATUS_LABELS[lang][signal.status];
+    return parts.length ? parts.join(' · ') : STATUS_LABELS[lang][signal.status];
 
   }, [lang, t.sizeLabel, t.leverageLabel]);
 
@@ -974,11 +1000,11 @@ const GlobalTradingSettingsCard: React.FC = () => {
 
           >
 
-            <option value="ko">???</option>
+            <option value="ko">한국어</option>
 
             <option value="en">English</option>
 
-            <option value="ja">???</option>
+            <option value="ja">日本語</option>
 
           </select>
 
