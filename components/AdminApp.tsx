@@ -81,6 +81,16 @@ const AdminApp: React.FC = () => {
     [overview]
   );
 
+  const strategyNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (overview?.strategies || []).forEach((strategy) => {
+      if (strategy.id) {
+        map.set(strategy.id, strategy.name);
+      }
+    });
+    return map;
+  }, [overview?.strategies]);
+
   const resetAdminState = useCallback(() => {
     setToken('');
     if (typeof window !== 'undefined') {
@@ -378,6 +388,11 @@ const AdminApp: React.FC = () => {
       <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
         <div className="max-w-md mx-auto">
           <Card title="관리자 로그인">
+            <div className="bg-black/30 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 space-y-2 mb-4">
+              <p>한국어: 주소창 끝에 <span className="text-gate-primary">/admin</span> 을 입력해 접속한 뒤, 관리자 토큰을 입력하면 대기 중인 UID 신청을 확인하고 승인/거절 및 웹훅 신호를 모니터링할 수 있습니다.</p>
+              <p>English: Add <span className="text-gate-primary">/admin</span> to the URL, sign in with the admin token, then review pending UID requests and broadcast webhook signals to subscribed users.</p>
+              <p>日本語: ブラウザのURL末尾に <span className="text-gate-primary">/admin</span> を追加し、管理者トークンでログインすると、UID申請の承認・却下やWebhookシグナルの配信状況を確認できます。</p>
+            </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm mb-1">관리자 토큰</label>
@@ -536,9 +551,11 @@ const AdminApp: React.FC = () => {
                     <span>{new Date(signal.timestamp).toLocaleString()}</span>
                     <span>{signal.status}</span>
                   </div>
-                  <div className="text-sm font-semibold">{signal.symbol || '---'} ({signal.strategyId})</div>
+                  <div className="text-sm font-semibold">
+                    {strategyNameMap.get(signal.strategyId || '') || signal.strategyId || '---'}
+                  </div>
                   <div className="text-xs text-gray-500">
-                    {signal.action} {signal.side} size={signal.size ?? '-'} leverage={signal.leverage ?? '-'}
+                    {signal.symbol || '---'} · {signal.action} {signal.side} · size={signal.size ?? '-'} · leverage={signal.leverage ?? '-'}
                   </div>
                 </div>
               ))
