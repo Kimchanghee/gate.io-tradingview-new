@@ -59,6 +59,24 @@ const AdminApp: React.FC = () => {
 
   const authorized = useMemo(() => Boolean(token), [token]);
 
+  const resetAdminState = useCallback(() => {
+    setToken('');
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('admin_token');
+      } else {
+        localStorage.removeItem('admin_token');
+      }
+    } catch (err) {
+      console.error('Failed to clear admin token', err);
+    }
+    setOverview(null);
+    setSignals([]);
+    setSelectionMap({});
+    setSignalStrategy('');
+    setOverviewUpdatedAt(null);
+  }, []);
+
   const buildHeaders = useCallback(
     (overrideToken?: string): Record<string, string> => {
       const authToken = overrideToken ?? token;
@@ -71,6 +89,17 @@ const AdminApp: React.FC = () => {
     [token]
   );
 
+  const buildAdminUrl = useCallback((pathname: string, params?: Record<string, string>) => {
+    const searchEntries = params ? Object.entries(params) : [];
+    if (typeof window === 'undefined') {
+      const search = searchEntries.length ? new URLSearchParams(searchEntries).toString() : '';
+      return `/api/admin${pathname}${search ? `?${search}` : ''}`;
+    }
+    const url = new URL(`/api/admin${pathname}`, window.location.origin);
+    searchEntries.forEach(([key, value]) => url.searchParams.set(key, value));
+    return url.toString();
+  }, []);
+
   const fetchOverview = useCallback(
     async (overrideToken?: string): Promise<OverviewResponse | null> => {
       const authToken = overrideToken ?? token;
@@ -81,12 +110,7 @@ const AdminApp: React.FC = () => {
         const res = await fetch('/api/admin/overview', { headers: buildHeaders(authToken) });
         if (res.status === 401) {
           setError('관리자 토큰이 유효하지 않습니다.');
-          setToken('');
-          localStorage.removeItem('admin_token');
-          setOverview(null);
-          setSignals([]);
-          setSelectionMap({});
-          setOverviewUpdatedAt(null);
+          resetAdminState();
           return null;
         }
         if (!res.ok) {
@@ -118,7 +142,7 @@ const AdminApp: React.FC = () => {
         setLoading(false);
       }
     },
-    [token, buildHeaders]
+    [token, buildHeaders, resetAdminState]
   );
 
   const fetchSignals = useCallback(
@@ -126,23 +150,13 @@ const AdminApp: React.FC = () => {
       const authToken = overrideToken ?? token;
       if (!authToken || !strategyId) return;
       try {
-        const requestUrl =
-          typeof window === 'undefined'
-            ? `/api/admin/signals?strategy=${encodeURIComponent(strategyId)}`
-            : (() => {
-                const url = new URL('/api/admin/signals', window.location.origin);
-                url.searchParams.set('strategy', strategyId);
-                return url.toString();
-              })();
-        const res = await fetch(requestUrl, { headers: buildHeaders(authToken) });
+        const res = await fetch(
+          buildAdminUrl('/signals', { strategy: strategyId }),
+          { headers: buildHeaders(authToken) }
+        );
         if (res.status === 401) {
           setError('세션이 만료되었습니다. 다시 로그인해주세요.');
-          setToken('');
-          localStorage.removeItem('admin_token');
-          setOverview(null);
-          setSignals([]);
-          setSelectionMap({});
-          setOverviewUpdatedAt(null);
+          resetAdminState();
           return;
         }
         if (res.ok) {
@@ -153,7 +167,7 @@ const AdminApp: React.FC = () => {
         console.error(err);
       }
     },
-    [token, buildHeaders]
+    [token, buildHeaders, buildAdminUrl, resetAdminState]
   );
 
   useEffect(() => {
@@ -201,14 +215,8 @@ const AdminApp: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_token');
-    setToken('');
-    setOverview(null);
-    setSignals([]);
-    setSelectionMap({});
-    setSignalStrategy('');
+    resetAdminState();
     setError('');
-    setOverviewUpdatedAt(null);
   };
 
   const handleManualRefresh = async () => {
