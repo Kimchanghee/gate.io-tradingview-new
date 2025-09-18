@@ -129,6 +129,8 @@ const AdminApp: React.FC = () => {
     []
   );
 
+  const overviewUrl = useMemo(() => buildAdminUrl('/overview'), [buildAdminUrl]);
+
   const fetchOverview = useCallback(
     async (overrideToken?: string): Promise<OverviewResponse | null> => {
       const authToken = overrideToken ?? token;
@@ -136,7 +138,7 @@ const AdminApp: React.FC = () => {
       try {
         setLoading(true);
         setError('');
-        const res = await fetch('/api/admin/overview', { headers: buildHeaders(authToken) });
+        const res = await fetch(overviewUrl, { headers: buildHeaders(authToken) });
         if (res.status === 401) {
           setError('관리자 토큰이 유효하지 않습니다.');
           resetAdminState();
@@ -170,7 +172,7 @@ const AdminApp: React.FC = () => {
         setLoading(false);
       }
     },
-    [token, buildHeaders, resetAdminState]
+    [token, buildHeaders, overviewUrl, resetAdminState]
   );
 
   const fetchSignals = useCallback(
@@ -203,7 +205,9 @@ const AdminApp: React.FC = () => {
     if (!token) return;
     fetchOverview();
     if (typeof window === 'undefined') return;
-    const id = window.setInterval(fetchOverview, 15000);
+    const id = window.setInterval(() => {
+      fetchOverview();
+    }, 15000);
     return () => window.clearInterval(id);
   }, [token, fetchOverview]);
 
