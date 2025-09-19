@@ -19,6 +19,7 @@ interface UserStatusResponse {
   requestedStrategies?: NamedStrategy[];
   approvedStrategies?: NamedStrategy[];
   accessKey?: string;
+  autoTradingEnabled?: boolean;
 }
 
 const UID_ALERT_MESSAGE = 'UID 인증은 최대 2시간 정도 걸립니다.\nUID verification may take up to 2 hours.\nUID認証には最大2時間ほどかかります。';
@@ -96,6 +97,7 @@ const RegistrationCard: React.FC = () => {
               status: data.status,
               accessKey: data.accessKey ?? null,
               approvedStrategies: (data.approvedStrategies || []).map((item) => ({ id: item.id, name: item.name })),
+              autoTradingEnabled: Boolean(data.autoTradingEnabled),
             },
           });
         }
@@ -145,6 +147,7 @@ const RegistrationCard: React.FC = () => {
           accessKey: data.accessKey ?? null,
           approvedStrategies: (data.approvedStrategies || []).map((item) => ({ id: item.id, name: item.name })),
           isLoggedIn: true,
+          autoTradingEnabled: Boolean(data.autoTradingEnabled),
         },
       });
       setMessage(translate('uidLoginSuccess'));
@@ -193,6 +196,7 @@ const RegistrationCard: React.FC = () => {
           status: data.status,
           accessKey: null,
           isLoggedIn: true,
+          autoTradingEnabled: false,
         },
       });
       setMessage(translate('registrationRequestSent'));
