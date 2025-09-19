@@ -67,7 +67,7 @@ interface Position {
 }
 
 const ApiSettingsCard: React.FC = () => {
-  const { state, translate } = useAppContext();
+  const { state, dispatch, translate } = useAppContext();
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -76,13 +76,22 @@ const ApiSettingsCard: React.FC = () => {
   const [accounts, setAccounts] = useState<AllAccounts | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [activeTab, setActiveTab] = useState<'futures' | 'spot' | 'margin' | 'options'>('futures');
+  const [autoToggleLoading, setAutoToggleLoading] = useState(false);
+  const [autoTradingMessage, setAutoTradingMessage] = useState('');
 
   const uidReady = state.user.isLoggedIn;
   const isUidApproved = state.user.status === 'approved';
+  const uid = state.user.uid;
+  const accessKey = state.user.accessKey || '';
+  const autoTradingEnabled = state.user.autoTradingEnabled;
 
   const handleConnect = async () => {
     if (!uidReady) {
       setConnectionStatus(translate('uidAuthRequired'));
+      return;
+    }
+    if (!isUidApproved) {
+      setConnectionStatus(translate('uidPendingNotice'));
       return;
     }
     if (!apiKey || !apiSecret) {
@@ -100,6 +109,8 @@ const ApiSettingsCard: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          uid,
+          accessKey,
           apiKey,
           apiSecret,
           isTestnet: state.network === Network.Testnet,
@@ -113,6 +124,10 @@ const ApiSettingsCard: React.FC = () => {
         setConnectionStatus(translate('connectionSuccess'));
         setAccounts(result.accounts);
         setPositions(result.positions || []);
+        if (typeof result.autoTradingEnabled === 'boolean') {
+          dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
+        }
+        setAutoTradingMessage('');
       } else {
         setIsConnected(false);
         setConnectionStatus(translate('connectionFailed'));
@@ -126,29 +141,82 @@ const ApiSettingsCard: React.FC = () => {
   };
 
   const handleDisconnect = () => {
+    if (uid && accessKey) {
+      fetch('/api/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, accessKey }),
+      }).catch((error) => {
+        console.error('Failed to notify backend about disconnect', error);
+      });
+    }
     setIsConnected(false);
     setConnectionStatus('');
     setAccounts(null);
     setPositions([]);
     setApiKey('');
     setApiSecret('');
+    dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: false } });
+    setAutoTradingMessage('');
   };
 
   const refreshAccounts = async () => {
+    if (!uid || !accessKey) {
+      setConnectionStatus(translate('uidAuthRequired'));
+      return;
+    }
     try {
-      const response = await fetch('/api/accounts/all');
+      const params = new URLSearchParams({ uid, key: accessKey });
+      const response = await fetch(`/api/accounts/all?${params.toString()}`);
       const data = await response.json();
       if (data.futures || data.spot) {
         setAccounts(data);
       }
-      
-      const posResponse = await fetch('/api/positions');
+
+      const posResponse = await fetch(`/api/positions?${params.toString()}`);
       if (posResponse.ok) {
         const posData = await posResponse.json();
         setPositions(posData.positions || []);
       }
     } catch (error) {
       console.error('계정 정보 새로고침 실패:', error);
+    }
+  };
+
+  const toggleAutoTrading = async () => {
+    if (!uidReady || !uid || !accessKey) {
+      setAutoTradingMessage(translate('uidAuthRequired'));
+      return;
+    }
+
+    if (!isUidApproved) {
+      setAutoTradingMessage(translate('uidPendingNotice'));
+      return;
+    }
+
+    const nextState = !autoTradingEnabled;
+    setAutoToggleLoading(true);
+    setAutoTradingMessage('');
+    try {
+      const response = await fetch('/api/trading/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, accessKey, enabled: nextState }),
+      });
+      const result = await response.json();
+      if (response.ok && typeof result.autoTradingEnabled === 'boolean') {
+        dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
+        setAutoTradingMessage(
+          result.autoTradingEnabled ? translate('activated') : translate('deactivated'),
+        );
+      } else {
+        setAutoTradingMessage(result?.message || translate('connectionError'));
+      }
+    } catch (error) {
+      console.error('자동 거래 상태 변경 실패', error);
+      setAutoTradingMessage(translate('connectionError'));
+    } finally {
+      setAutoToggleLoading(false);
     }
   };
 
@@ -296,12 +364,12 @@ const ApiSettingsCard: React.FC = () => {
         <div className="space-y-4">
           {/* 연결 상태 */}
           <div className="flex items-center justify-between p-3 bg-green-900/30 border border-green-500/50 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-green-400 font-medium">
-                {state.network === Network.Testnet ? translate('testnet') : translate('mainnet')} {translate('connected')}
-              </span>
-            </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+            <span className="text-green-400 font-medium">
+              {state.network === Network.Testnet ? translate('testnet') : translate('mainnet')} {translate('connected')}
+            </span>
+          </div>
             <div className="flex space-x-2">
               <button
                 onClick={refreshAccounts}
@@ -317,6 +385,31 @@ const ApiSettingsCard: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {isUidApproved && (
+            <div className="p-3 bg-black/30 border border-gray-700 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-gate-text">{translate('autoTrading')}</div>
+                  <div className="text-xs text-gray-400">{translate('autoTradingDesc')}</div>
+                </div>
+                <button
+                  onClick={toggleAutoTrading}
+                  disabled={autoToggleLoading}
+                  className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
+                    autoTradingEnabled
+                      ? 'bg-gate-primary text-black border-gate-primary hover:bg-green-500'
+                      : 'bg-gray-800 text-gray-200 border-gray-600 hover:border-gate-primary'
+                  } ${autoToggleLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {autoTradingEnabled ? translate('on') : translate('off')}
+                </button>
+              </div>
+              {autoTradingMessage && (
+                <div className="text-xs text-gray-400 mt-2">{autoTradingMessage}</div>
+              )}
+            </div>
+          )}
 
           {/* 총 자산 요약 */}
           {accounts && (

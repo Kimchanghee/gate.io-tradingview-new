@@ -18,7 +18,7 @@ interface Position {
 const REFRESH_INTERVAL_MS = 15000;
 
 const PositionDashboard: React.FC = () => {
-  const { translate } = useAppContext();
+  const { state, translate } = useAppContext();
   const [positions, setPositions] = useState<Position[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totalPnl, setTotalPnl] = useState(0);
@@ -26,11 +26,24 @@ const PositionDashboard: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const uid = state.user.uid;
+  const accessKey = state.user.accessKey || '';
+  const canLoadPositions = Boolean(uid && accessKey && state.user.status === 'approved');
+
   const fetchPositions = useCallback(async () => {
+    if (!canLoadPositions) {
+      setPositions([]);
+      setTotalPnl(0);
+      setTotalInvestment(0);
+      setLastUpdated(null);
+      setErrorMessage(null);
+      return;
+    }
     try {
       setIsLoading(true);
       setErrorMessage(null);
-      const response = await fetch('/api/positions');
+      const params = new URLSearchParams({ uid, key: accessKey });
+      const response = await fetch(`/api/positions?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -79,7 +92,7 @@ const PositionDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [accessKey, canLoadPositions, uid]);
 
   useEffect(() => {
     fetchPositions();
