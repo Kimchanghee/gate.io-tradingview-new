@@ -240,7 +240,7 @@ const createSimulatedPosition = (symbol, side) => {
   const size = ((margin * leverage) / entryPrice) * (side === 'long' ? 1 : -1);
   const markPrice = entryPrice * (1 + (Math.random() - 0.5) * 0.01);
   const pnl = (markPrice - entryPrice) * size;
-  const pnlPercentage = margin === 0 ? 0 : (pnl / margin) * 100;
+  const pnlPercentage = (pnl / margin) * 100;
   return {
     contract: symbol,
     size,

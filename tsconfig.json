@@ -11,7 +11,13 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "react",
+      "react-dom"
+    ],
+    "typeRoots": [
+      "./typings",
+      "./node_modules/@types"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
