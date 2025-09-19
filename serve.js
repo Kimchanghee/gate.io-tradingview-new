@@ -15,6 +15,8 @@ const MAX_SIGNALS_PER_STRATEGY = 250;
 const MAX_SIGNALS_PER_USER = 200;
 const MAX_POSITIONS_PER_USER = 24;
 
+console.log(`Starting server on port ${PORT}...`);
+
 app.use(express.json({ limit: '1mb' }));
 
 const nowIso = () => new Date().toISOString();
