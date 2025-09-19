@@ -736,8 +736,10 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
   }
   let strategy = matchStrategyByIndicator(resolvedIndicator);
   if (!strategy && store.webhook.routes.size === 1) {
-    const [onlyStrategy] = store.webhook.routes;
-    strategy = store.strategies.get(onlyStrategy) || null;
+    const [onlyStrategy] = Array.from(store.webhook.routes);
+    if (onlyStrategy) {
+      strategy = store.strategies.get(onlyStrategy) || null;
+    }
   }
   if (!strategy) {
     addLog('warning', `[WEBHOOK] Unknown indicator '${resolvedIndicator}'.`);
