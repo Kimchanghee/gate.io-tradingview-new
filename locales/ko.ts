@@ -156,6 +156,7 @@ export const ko = {
   uidLoginRequiredMessage: "UID를 입력해 주세요.",
   strategySelectLabel: "받고 싶은 지표 신호 전략",
   strategyNone: "등록 가능한 전략이 없습니다.",
+  strategyAdminSetupHint: "관리자 페이지에서 아직 전략이 등록되지 않았습니다. 관리자에게 전략 추가를 요청해 주세요.",
   strategySelectionRequiredMessage: "최소 한 개 이상의 전략을 선택해 주세요.",
   registrationRequestFailed: "등록에 실패했습니다. 잠시 후 다시 시도해 주세요.",
   registrationRequestSent: "등록 요청을 전송했습니다. 승인까지 잠시 기다려 주세요.",

@@ -12,6 +12,8 @@ interface SignalItem {
   leverage?: number;
   status?: string;
   strategyId?: string;
+  indicator?: string;
+  autoTradingExecuted?: boolean;
 }
 
 type SignalError = 'none' | 'forbidden' | 'generic';
@@ -107,14 +109,22 @@ const SignalFeedCard: React.FC = () => {
               signals.map((signal) => (
                 <div key={signal.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2">
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>{signal.strategyId || '-'}</span>
+                    <span>{signal.indicator || signal.strategyId || '-'}</span>
                     <span>{new Date(signal.timestamp).toLocaleString()}</span>
                   </div>
                   <div className="text-sm font-semibold text-gate-text">
-                    {signal.symbol || '---'} ({signal.action} {signal.side})
+                    {signal.symbol || '---'} ({signal.action || '-'} {signal.side || '-'})
                   </div>
-                  <div className="text-xs text-gray-500">
-                    size={signal.size ?? '-'} | leverage={signal.leverage ?? '-'} | status={signal.status}
+                  <div className="text-xs text-gray-500 space-y-0.5">
+                    <div>
+                      status: {signal.status || '-'}
+                      {signal.autoTradingExecuted !== undefined && (
+                        <span className={`ml-2 ${signal.autoTradingExecuted ? 'text-green-400' : 'text-gray-400'}`}>
+                          {signal.autoTradingExecuted ? translate('autoTrading') : translate('inactive')}
+                        </span>
+                      )}
+                    </div>
+                    <div>size={signal.size ?? '-'} | leverage={signal.leverage ?? '-'}</div>
                   </div>
                 </div>
               ))

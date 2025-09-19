@@ -38,6 +38,7 @@ const initialUserState: UserState = {
     accessKey: null,
     isLoggedIn: false,
     approvedStrategies: [],
+    autoTradingEnabled: false,
 };
 
 const initialState: AppState = {
@@ -100,6 +101,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
                     nextUser.status = 'not_registered';
                     nextUser.accessKey = null;
                     nextUser.approvedStrategies = [];
+                    nextUser.autoTradingEnabled = false;
                 }
             }
 
@@ -155,6 +157,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const storedStatus = (localStorage.getItem('user_status') as UserStatus | null) || 'not_registered';
             const storedAccessKey = localStorage.getItem('user_access_key');
             const storedStrategiesRaw = localStorage.getItem('user_approved_strategies');
+            const storedAutoTrading = localStorage.getItem('user_auto_trading_enabled');
 
             let storedStrategies: UserState['approvedStrategies'] = [];
             if (storedStrategiesRaw) {
@@ -179,6 +182,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                         accessKey: storedAccessKey ?? null,
                         approvedStrategies: storedStrategies,
                         isLoggedIn: Boolean(storedUid),
+                        autoTradingEnabled: storedAutoTrading === 'true',
                     },
                 });
             }
@@ -208,6 +212,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 localStorage.setItem('user_approved_strategies', JSON.stringify(state.user.approvedStrategies));
             } else {
                 localStorage.removeItem('user_approved_strategies');
+            }
+
+            if (state.user.autoTradingEnabled) {
+                localStorage.setItem('user_auto_trading_enabled', 'true');
+            } else {
+                localStorage.removeItem('user_auto_trading_enabled');
             }
         } catch (error) {
             console.error('Failed to persist user info', error);

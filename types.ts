@@ -20,6 +20,7 @@ export interface UserState {
     accessKey: string | null;
     isLoggedIn: boolean;
     approvedStrategies: UserStrategy[];
+    autoTradingEnabled: boolean;
 }
 
 export interface Position {

@@ -6,22 +6,28 @@ import { Position, LogType } from '../types';
 import { BACKEND_URL } from '../config';
 
 const PositionItem: React.FC<{ position: Position }> = ({ position }) => {
-    const { dispatch, translate } = useAppContext();
-    
+    const { state, dispatch, translate } = useAppContext();
+
     const side = position.size > 0 ? 'long' : 'short';
     const pnl = parseFloat(position.unrealised_pnl);
     const pnlColor = pnl >= 0 ? 'text-gate-success' : 'text-gate-danger';
     const pnlPercent = (pnl / parseFloat(position.margin)) * 100;
+    const uid = state.user.uid;
+    const accessKey = state.user.accessKey;
 
     const handleClosePosition = async () => {
+        if (!uid || !accessKey) {
+            dispatch({ type: 'ADD_LOG', payload: { message: translate('uidAuthRequired'), type: LogType.Warning } });
+            return;
+        }
         if (!window.confirm(`Close position for ${position.contract}?`)) return;
-        
+
         try {
              // This fetch call uses the dynamic backend URL
             const response = await fetch(`${BACKEND_URL}/api/positions/close`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contract: position.contract }),
+                body: JSON.stringify({ contract: position.contract, uid, accessKey }),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || 'Failed to close position');

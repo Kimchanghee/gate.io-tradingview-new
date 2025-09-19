@@ -156,6 +156,7 @@ export const ja = {
   uidLoginRequiredMessage: "UIDを入力してください。",
   strategySelectLabel: "受信したい指標シグナル",
   strategyNone: "利用可能な戦略がありません。",
+  strategyAdminSetupHint: "管理者ページで戦略がまだ公開されていません。管理者に追加を依頼してください。",
   strategySelectionRequiredMessage: "少なくとも1つの戦略を選択してください。",
   registrationRequestFailed: "登録に失敗しました。しばらくしてからお試しください。",
   registrationRequestSent: "申請を送信しました。承認までお待ちください。",

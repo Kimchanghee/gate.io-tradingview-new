@@ -156,6 +156,7 @@ export const en = {
   uidLoginRequiredMessage: "Please enter your UID.",
   strategySelectLabel: "Strategies you want to subscribe to",
   strategyNone: "No strategies available yet.",
+  strategyAdminSetupHint: "No strategies have been published from the admin yet. Please ask an administrator to add them.",
   strategySelectionRequiredMessage: "Please select at least one strategy.",
   registrationRequestFailed: "Registration failed. Please try again shortly.",
   registrationRequestSent: "Registration request sent. Please wait for approval.",
