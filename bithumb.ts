@@ -107,6 +107,30 @@ const createSignature = (secret: string, payload: string): string => {
   return crypto.createHmac('sha512', secret).update(payload).digest('base64');
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null;
+};
+
+const hasBithumbStatus = (value: unknown): value is BithumbResponse<unknown> => {
+  return (
+    isRecord(value) &&
+    typeof value.status === 'string' &&
+    Object.prototype.hasOwnProperty.call(value, 'status')
+  );
+};
+
+const ensureBithumbSuccess = <T>(payload: unknown, status: number): T => {
+  if (hasBithumbStatus(payload) && payload.status !== '0000') {
+    const details = typeof payload.message === 'string' ? `: ${payload.message}` : '';
+    throw new BithumbClientError(
+      `Bithumb API responded with status ${payload.status}${details}`,
+      status,
+      payload as unknown as T,
+    );
+  }
+  return payload as T;
+};
+
 export class BithumbClient {
   private readonly apiKey: string;
   private readonly apiSecret: string;
@@ -176,7 +200,7 @@ export class BithumbClient {
       );
     }
 
-    return payload as T;
+    return ensureBithumbSuccess<T>(payload, response.status);
   }
 
   public async publicRequest<T = unknown>(options: PublicRequestOptions): Promise<T> {
@@ -198,7 +222,7 @@ export class BithumbClient {
       );
     }
 
-    return payload as T;
+    return ensureBithumbSuccess<T>(payload, response.status);
   }
 }
 

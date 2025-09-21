@@ -12,6 +12,8 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || 'Ckdgml9788@';
 const PUBLIC_URL = process.env.PUBLIC_URL;
 
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.text({ type: ['text/plain'], limit: '1mb' }));
 
 const nowIso = () => new Date().toISOString();
 const randomId = (prefix) => `${prefix}_${crypto.randomUUID()}`;
@@ -617,20 +619,89 @@ app.post('/api/admin/strategies', requireAdmin, (req, res) => {
   res.json({ ok: true, strategy });
 });
 
-const verifyWebhookSecret = (req) => {
+const isPlainObject = (value) => typeof value === 'object' && value !== null;
+
+const parseWebhookBody = (rawBody) => {
+  if (rawBody == null) {
+    return {};
+  }
+
+  if (typeof rawBody === 'string') {
+    const trimmed = rawBody.trim();
+    if (!trimmed) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (isPlainObject(parsed)) {
+        return parsed;
+      }
+    } catch (jsonError) {
+      if (!trimmed.includes('=')) {
+        throw jsonError;
+      }
+
+      const params = new URLSearchParams(trimmed);
+      const result = {};
+      for (const [key, value] of params.entries()) {
+        if (key) {
+          result[key] = value;
+        }
+      }
+
+      if (typeof result.payload === 'string') {
+        try {
+          const nested = JSON.parse(result.payload);
+          if (isPlainObject(nested)) {
+            Object.assign(result, nested);
+          }
+        } catch (_) {
+          /* ignore nested parse errors */
+        }
+      }
+
+      if (Object.keys(result).length > 0) {
+        return result;
+      }
+
+      throw jsonError;
+    }
+
+    return {};
+  }
+
+  if (isPlainObject(rawBody)) {
+    return rawBody;
+  }
+
+  return {};
+};
+
+const verifyWebhookSecret = (req, payload) => {
   const headerSecret = req.get('x-webhook-secret');
-  const querySecret = req.params.secret || req.query.secret || req.body?.secret;
+  const querySecretRaw = req.params.secret ?? req.query.secret;
+  const querySecret = Array.isArray(querySecretRaw) ? querySecretRaw[0] : querySecretRaw;
+  const bodySecret = isPlainObject(payload) && typeof payload.secret === 'string' ? payload.secret : undefined;
   if (!webhook.secret) return false;
-  return headerSecret === webhook.secret || querySecret === webhook.secret;
+  return [headerSecret, querySecret, bodySecret].some((value) => value && value === webhook.secret);
 };
 
 app.post(['/webhook', '/webhook/:secret'], (req, res) => {
-  if (webhook.secret && !verifyWebhookSecret(req)) {
+  let payload;
+  try {
+    payload = parseWebhookBody(req.body);
+  } catch (error) {
+    addLog('error', `[WEBHOOK] Failed to parse payload: ${error.message}`);
+    return res.status(400).json({ ok: false, message: 'Invalid webhook payload.' });
+  }
+
+  if (webhook.secret && !verifyWebhookSecret(req, payload)) {
     addLog('error', '[WEBHOOK] Received payload with invalid secret');
     return res.status(403).json({ ok: false, message: 'Invalid webhook secret.' });
   }
 
-  const { indicator, strategy: strategyName, name, symbol, ticker, direction, side, action } = req.body || {};
+  const { indicator, strategy: strategyName, name, symbol, ticker, direction, side, action } = payload;
   const resolvedIndicator = indicator || strategyName || name;
   const resolvedSymbol = symbol || ticker;
   const resolvedDirection = direction || side || action;
