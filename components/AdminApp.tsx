@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Card from './Card';
+import LogsCard from './LogsCard';
 
 interface AdminStrategy {
   id: string;
@@ -1126,6 +1127,9 @@ const AdminApp: React.FC = () => {
             )}
           </div>
         </Card>
+        <div className="xl:col-span-2">
+          <LogsCard />
+        </div>
       </div>
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="승인 대기 UID" className="space-y-3">
