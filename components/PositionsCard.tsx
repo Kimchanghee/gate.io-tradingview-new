@@ -27,7 +27,7 @@ const PositionItem: React.FC<{ position: Position }> = ({ position }) => {
             const response = await fetch(`${BACKEND_URL}/api/positions/close`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contract: position.contract, uid, accessKey }),
+                body: JSON.stringify({ contract: position.contract, uid, accessKey, network: state.network }),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || 'Failed to close position');

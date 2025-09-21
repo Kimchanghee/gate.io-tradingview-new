@@ -54,18 +54,6 @@ interface AllAccounts {
   totalEstimatedValue: number;
 }
 
-interface Position {
-  contract: string;
-  size: number;
-  side: string;
-  leverage: number;
-  margin: number;
-  pnl: number;
-  pnlPercentage: number;
-  entryPrice: number;
-  markPrice: number;
-}
-
 const ApiSettingsCard: React.FC = () => {
   const { state, dispatch, translate } = useAppContext();
   const [apiKey, setApiKey] = useState('');
@@ -74,7 +62,6 @@ const ApiSettingsCard: React.FC = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [accounts, setAccounts] = useState<AllAccounts | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
   const [activeTab, setActiveTab] = useState<'futures' | 'spot' | 'margin' | 'options'>('futures');
   const [autoToggleLoading, setAutoToggleLoading] = useState(false);
   const [autoTradingMessage, setAutoTradingMessage] = useState('');
@@ -117,22 +104,56 @@ const ApiSettingsCard: React.FC = () => {
         }),
       });
 
-      const result = await response.json();
+      const raw = await response.text();
 
-      if (result.ok) {
-        setIsConnected(true);
-        setConnectionStatus(translate('connectionSuccess'));
-        setAccounts(result.accounts);
-        setPositions(result.positions || []);
-        if (typeof result.autoTradingEnabled === 'boolean') {
-          dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
+      if (!response.ok) {
+        let message = translate('connectionFailed');
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed?.message) {
+              message = parsed.message;
+            }
+          } catch {
+            message = raw;
+          }
         }
-        setAutoTradingMessage('');
-      } else {
         setIsConnected(false);
-        setConnectionStatus(translate('connectionFailed'));
+        setConnectionStatus(message);
+        return;
       }
+
+      if (!raw) {
+        setIsConnected(false);
+        setConnectionStatus(translate('connectionError'));
+        return;
+      }
+
+      let result: any;
+      try {
+        result = JSON.parse(raw);
+      } catch (parseError) {
+        console.error('API 연결 응답 파싱 실패:', parseError);
+        setIsConnected(false);
+        setConnectionStatus(translate('connectionError'));
+        return;
+      }
+
+      if (!result.ok) {
+        setIsConnected(false);
+        setConnectionStatus(result?.message || translate('connectionFailed'));
+        return;
+      }
+
+      setIsConnected(true);
+      setConnectionStatus(result?.message || translate('connectionSuccess'));
+      setAccounts(result.accounts ?? null);
+      if (typeof result.autoTradingEnabled === 'boolean') {
+        dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
+      }
+      setAutoTradingMessage('');
     } catch (error) {
+      console.error('API 연결 실패:', error);
       setIsConnected(false);
       setConnectionStatus(translate('connectionError'));
     } finally {
@@ -145,7 +166,7 @@ const ApiSettingsCard: React.FC = () => {
       fetch('/api/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid, accessKey }),
+        body: JSON.stringify({ uid, accessKey, network: state.network }),
       }).catch((error) => {
         console.error('Failed to notify backend about disconnect', error);
       });
@@ -153,7 +174,6 @@ const ApiSettingsCard: React.FC = () => {
     setIsConnected(false);
     setConnectionStatus('');
     setAccounts(null);
-    setPositions([]);
     setApiKey('');
     setApiSecret('');
     dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: false } });
@@ -166,20 +186,42 @@ const ApiSettingsCard: React.FC = () => {
       return;
     }
     try {
-      const params = new URLSearchParams({ uid, key: accessKey });
+      const params = new URLSearchParams({ uid, key: accessKey, network: state.network });
       const response = await fetch(`/api/accounts/all?${params.toString()}`);
-      const data = await response.json();
-      if (data.futures || data.spot) {
-        setAccounts(data);
+      const raw = await response.text();
+
+      if (!response.ok) {
+        let message = translate('connectionError');
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed?.message) {
+              message = parsed.message;
+            }
+          } catch {
+            message = raw;
+          }
+        }
+        setConnectionStatus(message);
+        return;
       }
 
-      const posResponse = await fetch(`/api/positions?${params.toString()}`);
-      if (posResponse.ok) {
-        const posData = await posResponse.json();
-        setPositions(posData.positions || []);
+      if (!raw) {
+        setConnectionStatus(translate('connectionError'));
+        return;
+      }
+
+      try {
+        const data = JSON.parse(raw);
+        setAccounts(data && typeof data === 'object' ? data : null);
+        setConnectionStatus(translate('connectionSuccess'));
+      } catch (parseError) {
+        console.error('계정 정보 파싱 실패:', parseError);
+        setConnectionStatus(translate('connectionError'));
       }
     } catch (error) {
       console.error('계정 정보 새로고침 실패:', error);
+      setConnectionStatus(translate('connectionError'));
     }
   };
 
@@ -514,42 +556,7 @@ const ApiSettingsCard: React.FC = () => {
                       💡 {getDetailText('assetFormula')}
                     </div>
 
-                    {/* 포지션 정보 */}
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-semibold text-gate-text border-b border-gray-600 pb-1">
-                        {translate('activePositions')} ({positions.length})
-                      </h4>
-                      {positions.length === 0 ? (
-                        <div className="text-center text-gray-400 text-sm py-4">
-                          {translate('noActivePositions')}
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {positions.map((position, index) => (
-                            <div key={index} className="p-2 bg-gate-secondary rounded text-xs">
-                              <div className="flex justify-between items-center mb-1">
-                                <span className="font-semibold">{position.contract}</span>
-                                <span className={`px-2 py-1 rounded text-xs ${
-                                  position.side === 'long' 
-                                    ? 'bg-green-900/50 text-green-400' 
-                                    : 'bg-red-900/50 text-red-400'
-                                }`}>
-                                  {position.side === 'long' ? translate('long') : translate('short')} {position.leverage}x
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 text-gray-400">
-                                <div>{translate('quantity')}: {formatNumber(Math.abs(position.size))}</div>
-                                <div>{translate('entryPrice')}: ${formatNumber(position.entryPrice)}</div>
-                                <div>{translate('currentPrice')}: ${formatNumber(position.markPrice)}</div>
-                                <div className={position.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                  {translate('pnl')}: {formatNumber(position.pnlPercentage)}%
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    {/* 포지션 정보는 포지션 대시보드에서 제공 */}
                   </>
                 ) : (
                   <div className="text-center text-gray-400 text-sm py-8">
