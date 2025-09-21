@@ -41,6 +41,7 @@ interface AdminSignal {
   leverage?: number;
   status?: string;
   strategyId?: string;
+  indicator?: string;
 }
 
 interface AdminWebhookInfo {
@@ -48,6 +49,40 @@ interface AdminWebhookInfo {
   secret?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+interface AdminRealtimeMetrics {
+  visitors: {
+    active: number;
+    totalSessions: number;
+    lastVisitAt: string | null;
+  };
+  signalRecipients: {
+    active: number;
+    lastSignalAt: string | null;
+    lastDeliveredCount: number;
+  };
+  webhook: {
+    ready: boolean;
+    issues: string[];
+    routes: string[];
+    lastSignal: {
+      timestamp: string;
+      indicator?: string;
+      symbol?: string;
+      action?: string;
+      side?: string;
+      delivered: number;
+      strategyId?: string;
+      strategyName?: string;
+    } | null;
+  };
+  googleSheets: {
+    configured: boolean;
+    lastStatus: string;
+    lastSyncAt: string | null;
+    lastError: string | null;
+  };
 }
 
 const loadInitialWebhookTargets = (): { list: string[]; fromStorage: boolean } => {
@@ -107,6 +142,7 @@ const AdminApp: React.FC = () => {
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
   const [webhookSaving, setWebhookSaving] = useState(false);
+  const [metricsState, setMetricsState] = useState<AdminRealtimeMetrics | null>(null);
 
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const editingUidRef = useRef<string | null>(null);
@@ -187,6 +223,7 @@ const AdminApp: React.FC = () => {
     setEditingUser(null);
     editingUidRef.current = null;
     setSavingUser(null);
+    setMetricsState(null);
   }, []);
 
   const buildHeaders = useCallback(
@@ -293,6 +330,31 @@ const AdminApp: React.FC = () => {
         setSignals(Array.isArray(data.signals) ? data.signals.slice().reverse() : []);
       } catch (err) {
         console.error(err);
+      }
+    },
+    [token, buildAdminUrl, buildHeaders, resetAdminState],
+  );
+
+  const fetchMetrics = useCallback(
+    async (overrideToken?: string): Promise<AdminRealtimeMetrics | null> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken) return null;
+      try {
+        const res = await fetch(buildAdminUrl('/metrics'), { headers: buildHeaders(authToken) });
+        if (res.status === 401) {
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
+          resetAdminState();
+          return null;
+        }
+        if (!res.ok) {
+          return null;
+        }
+        const data: AdminRealtimeMetrics = await res.json();
+        setMetricsState(data);
+        return data;
+      } catch (err) {
+        console.error(err);
+        return null;
       }
     },
     [token, buildAdminUrl, buildHeaders, resetAdminState],
@@ -629,11 +691,18 @@ const AdminApp: React.FC = () => {
       await fetchSignals(nextStrategy, authToken);
     }
     await fetchWebhookInfo(authToken);
+    await fetchMetrics(authToken);
   };
 
   const handleLogout = () => {
     resetAdminState();
   };
+
+  const handleRefresh = useCallback(() => {
+    fetchOverview();
+    fetchWebhookInfo();
+    fetchMetrics();
+  }, [fetchOverview, fetchWebhookInfo, fetchMetrics]);
 
   useEffect(() => {
     if (!token) return;
@@ -645,6 +714,16 @@ const AdminApp: React.FC = () => {
     }, 15000);
     return () => window.clearInterval(id);
   }, [token, fetchOverview, fetchWebhookInfo]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchMetrics();
+    if (typeof window === 'undefined') return;
+    const id = window.setInterval(() => {
+      fetchMetrics();
+    }, 10000);
+    return () => window.clearInterval(id);
+  }, [token, fetchMetrics]);
 
   useEffect(() => {
     if (token && signalStrategy) {
@@ -704,7 +783,7 @@ const AdminApp: React.FC = () => {
         <h1 className="text-2xl font-bold">관리자 콘솔</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => fetchOverview()}
+            onClick={handleRefresh}
             className="px-3 py-1 bg-gate-primary text-black rounded hover:bg-green-500 transition"
             disabled={loading}
           >
@@ -727,7 +806,7 @@ const AdminApp: React.FC = () => {
 
       {error && <div className="mb-4 text-sm text-red-400">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Card title="등록된 사용자" className="text-center">
           <div className="text-3xl font-bold text-gate-primary">{totalUsers}</div>
           <div className="text-xs text-gray-400 mt-2">총 사용자 수</div>
@@ -741,6 +820,53 @@ const AdminApp: React.FC = () => {
           <div className="text-xs text-gray-400 mt-2">
             {overviewUpdatedAt ? `업데이트: ${new Date(overviewUpdatedAt).toLocaleString()}` : '업데이트 이력 없음'}
           </div>
+        </Card>
+        <Card title="실시간 상태" className="text-center space-y-2">
+          <div>
+            <div className="text-3xl font-bold text-blue-300">{metricsState?.visitors?.active ?? 0}</div>
+            <div className="text-xs text-gray-400 mt-1">현재 접속자 수</div>
+          </div>
+          <div>
+            <div className="text-3xl font-bold text-purple-300">{metricsState?.signalRecipients?.active ?? 0}</div>
+            <div className="text-xs text-gray-400 mt-1">신호 수신 중</div>
+          </div>
+          <div className="text-[11px] text-gray-500">
+            최근 전달: {metricsState?.signalRecipients?.lastDeliveredCount ?? 0}명
+          </div>
+          <div
+            className={`text-xs font-semibold ${
+              metricsState?.webhook?.ready ? 'text-green-300' : 'text-red-300'
+            }`}
+          >
+            {metricsState?.webhook?.ready ? '웹훅 대기 중' : '웹훅 준비 필요'}
+          </div>
+          {!metricsState?.webhook?.ready && metricsState?.webhook?.issues?.length ? (
+            <ul className="text-[11px] text-gray-400 space-y-1">
+              {metricsState.webhook?.issues?.map((issue) => (
+                <li key={issue}>• {issue}</li>
+              ))}
+            </ul>
+          ) : null}
+          {metricsState?.googleSheets && (
+            <div className="text-[11px] text-gray-500 space-y-1">
+              <div>
+                구글 시트:{' '}
+                {metricsState.googleSheets.configured
+                  ? metricsState.googleSheets.lastStatus
+                  : '환경 변수 필요'}
+              </div>
+              {metricsState.googleSheets.lastSyncAt && (
+                <div className="text-[10px] text-gray-600">
+                  최근 기록: {new Date(metricsState.googleSheets.lastSyncAt).toLocaleString()}
+                </div>
+              )}
+              {metricsState.googleSheets.lastError && (
+                <div className="text-[10px] text-red-300 break-words">
+                  {metricsState.googleSheets.lastError}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -951,6 +1077,16 @@ const AdminApp: React.FC = () => {
               새로고침
             </button>
           </div>
+          {metricsState?.webhook?.lastSignal && (
+            <div className="mb-2 text-xs text-gray-400">
+              마지막 웹훅: {new Date(metricsState.webhook.lastSignal.timestamp).toLocaleString()} ·{' '}
+              {metricsState.webhook.lastSignal.indicator || metricsState.webhook.lastSignal.strategyName || '-'} ·{' '}
+              {metricsState.webhook.lastSignal.symbol || '-'} ·{' '}
+              {(metricsState.webhook.lastSignal.action || '-').toUpperCase()}{' '}
+              {(metricsState.webhook.lastSignal.side || '-').toUpperCase()} · 전달{' '}
+              {metricsState.webhook.lastSignal.delivered}명
+            </div>
+          )}
           <div className="max-h-64 overflow-y-auto space-y-2 text-sm">
             {signals.length === 0 ? (
               <div className="text-gray-500">아직 수신된 웹훅 신호가 없습니다.</div>
@@ -965,7 +1101,8 @@ const AdminApp: React.FC = () => {
                     {strategyNameMap.get(signal.strategyId || '') || signal.strategyId || '알 수 없는 전략'}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {signal.symbol || '---'} · {signal.action} {signal.side} · size={signal.size ?? '-'} · leverage={signal.leverage ?? '-'}
+                    {signal.symbol || '---'} · {signal.action} {signal.side} · indicator={signal.indicator || '-'} · size=
+                    {signal.size ?? '-'} · leverage={signal.leverage ?? '-'}
                   </div>
                 </div>
               ))
