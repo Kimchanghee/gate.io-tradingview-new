@@ -579,6 +579,16 @@ adminRouter.get('/webhook', (req, res) => {
 });
 
 adminRouter.post('/webhook', (req, res) => {
+  if (webhook.url && webhook.secret) {
+    return res.json({
+      url: webhook.url,
+      secret: webhook.secret,
+      createdAt: webhook.createdAt,
+      updatedAt: webhook.updatedAt,
+      routes: Array.from(webhook.routes),
+      alreadyExists: true,
+    });
+  }
   const secret = randomId('wh');
   webhook.secret = secret;
   webhook.url = buildWebhookUrl(req, secret);
@@ -594,6 +604,7 @@ adminRouter.post('/webhook', (req, res) => {
     createdAt: webhook.createdAt,
     updatedAt: webhook.updatedAt,
     routes: Array.from(webhook.routes),
+    alreadyExists: false,
   });
 });
 
