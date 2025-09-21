@@ -7,14 +7,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT ?? 8080);
+const DEFAULT_ADMIN_TOKEN = 'Ckdgml9788@';
 const ADMIN_SECRETS = new Set(
-  [process.env.ADMIN_SECRET, 'Ckdgml9788@']
+  [process.env.ADMIN_SECRET, DEFAULT_ADMIN_TOKEN]
     .filter((token) => typeof token === 'string' && token.trim().length > 0)
     .map((token) => token.trim()),
 );
 
 const MAX_LOGS = 200;
 const MAX_SIGNAL_HISTORY = 100;
+
+const DIRECTION_LABELS = {
+  long_entry: '롱 진입',
+  long_exit: '롱 청산',
+  short_entry: '숏 진입',
+  short_exit: '숏 청산',
+  blocked: '차단됨',
+};
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -97,6 +106,29 @@ const parseDirection = (value) => {
   return { action, side };
 };
 
+const resolveDirectionInput = ({ direction, action, side }) => {
+  const direct = typeof direction === 'string' ? direction.trim() : '';
+  if (direct) {
+    return direct;
+  }
+
+  const actionValue = typeof action === 'string' ? action.trim() : '';
+  const sideValue = typeof side === 'string' ? side.trim() : '';
+
+  if (actionValue && sideValue) {
+    return `${actionValue}_${sideValue}`;
+  }
+  if (actionValue) {
+    return actionValue;
+  }
+  if (sideValue) {
+    return sideValue;
+  }
+  return '';
+};
+
+const describeDirection = (canonical) => DIRECTION_LABELS[canonical] ?? canonical;
+
 const addAdminSignal = (strategyId, entry) => {
   const bucket = adminSignals.get(strategyId) ?? [];
   bucket.push(entry);
@@ -151,86 +183,6 @@ const buildWebhookUrl = (req, secret) => {
   return `${protocol}://${host}/webhook/${secret}`;
 };
 
-const seedData = () => {
-  const momentum = createStrategyRecord(
-    'momentum-alpha',
-    'Momentum Alpha',
-    'Tracks momentum breakouts on high-volume pairs.',
-    ['momentum alpha', 'alpha momentum'],
-  );
-  const meanRev = createStrategyRecord(
-    'mean-revert-x',
-    'Mean Revert X',
-    'Captures pullbacks within a trending market.',
-    ['mean reversion', 'revert x'],
-  );
-  const breakout = createStrategyRecord(
-    'breakout-scout',
-    'Breakout Scout',
-    'Identifies consolidation breaks with volume confirmation.',
-    ['breakout scout', 'scout breakout'],
-  );
-
-  webhook.routes = new Set([momentum.id, meanRev.id, breakout.id]);
-
-  const createdAt = nowIso();
-  const approvedUser = {
-    uid: 'demo-approved',
-    status: 'approved',
-    requestedStrategies: [momentum.id, breakout.id],
-    approvedStrategies: [momentum.id, breakout.id],
-    accessKey: 'demo-access-key',
-    autoTradingEnabled: true,
-    createdAt,
-    updatedAt: createdAt,
-    approvedAt: createdAt,
-  };
-  users.set(approvedUser.uid, approvedUser);
-  userSignals.set(approvedUser.uid, []);
-  userPositions.set(approvedUser.uid, [
-    {
-      contract: 'BTC_USDT',
-      size: 0.5,
-      side: 'long',
-      leverage: 10,
-      margin: 500,
-      pnl: 120,
-      pnlPercentage: 24,
-      entryPrice: 62000,
-      markPrice: 64400,
-    },
-    {
-      contract: 'ETH_USDT',
-      size: -2,
-      side: 'short',
-      leverage: 8,
-      margin: 800,
-      pnl: -65,
-      pnlPercentage: -8.1,
-      entryPrice: 3200,
-      markPrice: 3305,
-    },
-  ]);
-
-  const pendingUser = {
-    uid: 'demo-pending',
-    status: 'pending',
-    requestedStrategies: [meanRev.id],
-    approvedStrategies: [],
-    accessKey: null,
-    autoTradingEnabled: false,
-    createdAt,
-    updatedAt: createdAt,
-    approvedAt: null,
-  };
-  users.set(pendingUser.uid, pendingUser);
-  userSignals.set(pendingUser.uid, []);
-  userPositions.set(pendingUser.uid, []);
-
-  addLog('info', 'Seeded sample strategies and users.');
-};
-
-seedData();
 
 app.get('/api/strategies', (req, res) => {
   const list = Array.from(strategies.values()).map(cloneStrategyForClient);
@@ -615,12 +567,23 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     return res.status(403).json({ ok: false, message: 'Invalid webhook secret.' });
   }
 
-  const { indicator, strategy: strategyName, name, symbol, ticker, direction, side, action, size, leverage } = req.body || {};
+  const {
+    indicator,
+    strategy: strategyName,
+    name,
+    symbol,
+    ticker,
+    direction,
+    side,
+    action,
+    size,
+    leverage,
+  } = req.body || {};
   const resolvedIndicator = indicator || strategyName || name;
   const resolvedSymbol = symbol || ticker;
-  const resolvedDirection = direction || side || action;
+  const resolvedDirectionInput = resolveDirectionInput({ direction, action, side });
 
-  if (!resolvedIndicator || !resolvedSymbol || !resolvedDirection) {
+  if (!resolvedIndicator || !resolvedSymbol || !resolvedDirectionInput) {
     addLog('error', '[WEBHOOK] Missing indicator, symbol or direction in payload');
     return res
       .status(400)
@@ -647,14 +610,17 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
       timestamp: nowIso(),
       action: 'ignored',
       side: 'blocked',
+      direction: 'blocked',
+      indicator: resolvedIndicator,
       symbol: resolvedSymbol,
       strategyId: strategy.id,
-      status: 'blocked by admin routing',
+      status: '관리자 라우팅으로 차단됨',
     });
     return res.json({ ok: true, delivered: 0, message: 'Strategy not targeted.' });
   }
 
-  const parsed = parseDirection(resolvedDirection);
+  const parsed = parseDirection(resolvedDirectionInput);
+  const canonicalDirection = `${parsed.side}_${parsed.action === 'close' ? 'exit' : 'entry'}`;
   const signal = {
     id: randomId('sig'),
     timestamp: nowIso(),
@@ -662,6 +628,7 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     symbol: resolvedSymbol,
     action: parsed.action,
     side: parsed.side,
+    direction: canonicalDirection,
     size: size === undefined ? undefined : Number(size),
     leverage: leverage === undefined ? undefined : Number(leverage),
   };
@@ -676,15 +643,13 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     symbol: signal.symbol,
     strategyId: strategy.id,
     indicator: resolvedIndicator,
-    status:
-      delivered > 0
-        ? `delivered to ${delivered} user${delivered === 1 ? '' : 's'}`
-        : 'no approved recipients',
+    direction: canonicalDirection,
+    status: delivered > 0 ? `${delivered}명의 사용자에게 전달됨` : '전달 대상 사용자 없음',
   };
   addAdminSignal(strategy.id, adminRecord);
   addLog(
     'info',
-    `[WEBHOOK] ${strategy.name} → ${resolvedSymbol} (${signal.side.toUpperCase()}) delivered to ${delivered} user(s)`,
+    `[WEBHOOK] ${strategy.name} → ${resolvedSymbol} (${describeDirection(canonicalDirection)}) ${delivered}명 사용자에게 전달`,
   );
 
   res.json({ ok: true, delivered });
