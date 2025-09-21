@@ -2,13 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Card from './Card';
 import { useAppContext } from '../contexts/AppContext';
 
-interface Strategy {
-  id: string;
-  name: string;
-  description?: string;
-  active?: boolean;
-}
-
 interface NamedStrategy {
   id: string;
   name: string;
@@ -22,20 +15,9 @@ interface UserStatusResponse {
   autoTradingEnabled?: boolean;
 }
 
-const UID_ALERT_MESSAGE = 'UID 인증은 최대 2시간 정도 걸립니다.\nUID verification may take up to 2 hours.\nUID認証には最大2時間ほどかかります。';
-
 const RegistrationCard: React.FC = () => {
   const { state, dispatch, translate } = useAppContext();
   const [uid, setUid] = useState(state.user.uid || '');
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [selected, setSelected] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem('user_requested_strategies');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
   const [statusInfo, setStatusInfo] = useState<UserStatusResponse | null>(null);
   const [message, setMessage] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -54,30 +36,10 @@ const RegistrationCard: React.FC = () => {
   }, [statusInfo?.approvedStrategies, state.user.approvedStrategies]);
 
   useEffect(() => {
-    const fetchStrategies = async () => {
-      try {
-        const res = await fetch('/api/strategies');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (Array.isArray(data.strategies)) {
-          setStrategies(data.strategies);
-        }
-      } catch (err) {
-        console.error('전략 목록을 불러오지 못했습니다.', err);
-      }
-    };
-    fetchStrategies();
-  }, []);
-
-  useEffect(() => {
     if (state.user.uid && state.user.uid !== uid) {
       setUid(state.user.uid);
     }
   }, [state.user.uid, uid]);
-
-  useEffect(() => {
-    localStorage.setItem('user_requested_strategies', JSON.stringify(selected));
-  }, [selected]);
 
   useEffect(() => {
     if (!activeUid) return;
@@ -113,13 +75,6 @@ const RegistrationCard: React.FC = () => {
     };
   }, [activeUid, dispatch]);
 
-  const toggleStrategy = (id: string) => {
-    setSelected((prev) => {
-      if (prev.includes(id)) return prev.filter((s) => s !== id);
-      return [...prev, id];
-    });
-  };
-
   const handleLogin = async () => {
     setMessage('');
     const trimmed = uid.trim();
@@ -136,9 +91,6 @@ const RegistrationCard: React.FC = () => {
       }
       const data: UserStatusResponse = await res.json();
       setStatusInfo(data);
-      if (data.requestedStrategies && data.requestedStrategies.length) {
-        setSelected(data.requestedStrategies.map((s) => s.id));
-      }
       dispatch({
         type: 'SET_USER',
         payload: {
@@ -167,21 +119,12 @@ const RegistrationCard: React.FC = () => {
       setMessage(translate('uidLoginRequiredMessage'));
       return;
     }
-    if (!selected.length) {
-      setMessage(translate('strategySelectionRequiredMessage'));
-      return;
-    }
-
-    if (typeof window !== 'undefined') {
-      window.alert(UID_ALERT_MESSAGE);
-    }
-
     try {
       setRegisterLoading(true);
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: trimmed, strategies: selected })
+        body: JSON.stringify({ uid: trimmed })
       });
       if (!res.ok) {
         setMessage(translate('registrationRequestFailed'));
@@ -196,9 +139,13 @@ const RegistrationCard: React.FC = () => {
           status: data.status,
           accessKey: null,
           isLoggedIn: true,
+          approvedStrategies: [],
           autoTradingEnabled: false,
         },
       });
+      if (typeof window !== 'undefined') {
+        window.alert(translate('registrationPopupMessage'));
+      }
       setMessage(translate('registrationRequestSent'));
     } catch (err) {
       console.error(err);
@@ -258,31 +205,7 @@ const RegistrationCard: React.FC = () => {
               {registerLoading ? translate('loading') : translate('uidRegisterButton')}
             </button>
           </div>
-        </div>
-
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">{translate('strategySelectLabel')}</label>
-          <div className="flex flex-wrap gap-2">
-            {strategies.map((strategy) => (
-              <label
-                key={strategy.id}
-                className={`px-3 py-2 border rounded cursor-pointer text-sm flex items-center gap-2 ${
-                  selected.includes(strategy.id) ? 'border-gate-primary bg-gate-primary/10' : 'border-gray-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="mr-2"
-                  checked={selected.includes(strategy.id)}
-                  onChange={() => toggleStrategy(strategy.id)}
-                />
-                {strategy.name}
-              </label>
-            ))}
-            {strategies.length === 0 && (
-              <div className="text-xs text-gray-500">{translate('strategyNone')}</div>
-            )}
-          </div>
+          <p className="text-xs text-gray-400">{translate('registrationReviewNotice')}</p>
         </div>
 
         {message && <div className="text-sm text-gray-300">{message}</div>}
