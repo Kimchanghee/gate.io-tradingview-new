@@ -652,6 +652,24 @@ adminRouter.post('/users/deny', (req, res) => {
   res.json({ ok: true });
 });
 
+adminRouter.patch('/users/:uid/strategies', (req, res) => {
+  const { uid } = req.params;
+  const { strategies: selected } = req.body || {};
+  if (!Array.isArray(selected) || !selected.length) {
+    return res.status(400).json({ ok: false, message: 'At least one strategy must be selected.' });
+  }
+  const user = users.get(uid);
+  if (!user) {
+    return res.status(404).json({ ok: false, message: 'User not found.' });
+  }
+  const approved = Array.from(new Set(selected.map(String).filter((id) => strategies.has(id))));
+  user.approvedStrategies = approved;
+  user.updatedAt = nowIso();
+  users.set(uid, user);
+  addLog('info', `[ADMIN] Updated strategies for UID ${uid}: ${approved.join(', ')}.`);
+  res.json({ ok: true });
+});
+
 adminRouter.patch('/strategies/:id', (req, res) => {
   const { id } = req.params;
   const strategy = strategies.get(id);
@@ -676,24 +694,6 @@ adminRouter.post('/strategies', (req, res) => {
   const record = createStrategyRecord(id, name.trim(), description ? String(description) : undefined, [name]);
   addLog('info', `[ADMIN] Added strategy ${record.name} (${record.id}).`);
   res.json({ ok: true, strategy: cloneStrategyForClient(record) });
-});
-
-adminRouter.patch('/users/:uid/strategies', (req, res) => {
-  const { uid } = req.params;
-  const { strategies: selected } = req.body || {};
-  if (!Array.isArray(selected) || !selected.length) {
-    return res.status(400).json({ ok: false, message: 'At least one strategy must be selected.' });
-  }
-  const user = users.get(uid);
-  if (!user) {
-    return res.status(404).json({ ok: false, message: 'User not found.' });
-  }
-  const approved = Array.from(new Set(selected.map(String).filter((id) => strategies.has(id))));
-  user.approvedStrategies = approved;
-  user.updatedAt = nowIso();
-  users.set(uid, user);
-  addLog('info', `[ADMIN] Updated strategies for UID ${uid}: ${approved.join(', ')}.`);
-  res.json({ ok: true });
 });
 
 app.use('/api/admin', adminRouter);
