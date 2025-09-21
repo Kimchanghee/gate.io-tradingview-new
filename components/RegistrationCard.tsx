@@ -36,10 +36,8 @@ const RegistrationCard: React.FC = () => {
   }, [statusInfo?.approvedStrategies, state.user.approvedStrategies]);
 
   useEffect(() => {
-    if (state.user.uid && state.user.uid !== uid) {
-      setUid(state.user.uid);
-    }
-  }, [state.user.uid, uid]);
+    setUid(state.user.uid || '');
+  }, [state.user.uid]);
 
   useEffect(() => {
     if (!activeUid) return;
