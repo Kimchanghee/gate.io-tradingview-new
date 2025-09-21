@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'admin-secret';
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'Ckdgml9788@';
 const PUBLIC_URL = process.env.PUBLIC_URL;
 
 app.use(express.json({ limit: '1mb' }));
