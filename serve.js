@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +16,8 @@ const ADMIN_SECRETS = new Set(
 
 const MAX_LOGS = 200;
 const MAX_SIGNAL_HISTORY = 100;
+const VISITOR_TTL_MS = 5 * 60 * 1000;
+const SIGNAL_RECIPIENT_TTL_MS = 3 * 60 * 1000;
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -32,6 +35,14 @@ const users = new Map();
 const userSignals = new Map();
 const userPositions = new Map();
 const userConnections = new Map();
+const visitorSessions = new Map();
+const signalRecipientActivity = new Map();
+
+const metricsState = {
+  lastVisitAt: null,
+  lastWebhook: null,
+  lastGoogleSheetsSync: null,
+};
 
 const webhook = {
   url: null,
@@ -116,7 +127,7 @@ const addUserSignal = (uid, signal) => {
 };
 
 const deliverSignalToUsers = (strategy, signal) => {
-  let delivered = 0;
+  const recipients = [];
   for (const user of users.values()) {
     if (user.status !== 'approved') continue;
     if (!user.approvedStrategies.includes(strategy.id)) continue;
@@ -129,10 +140,49 @@ const deliverSignalToUsers = (strategy, signal) => {
       autoTradingExecuted: Boolean(user.autoTradingEnabled),
     };
     addUserSignal(user.uid, deliveredSignal);
-    delivered += 1;
+    recipients.push(user.uid);
   }
-  return delivered;
+  return { delivered: recipients.length, recipients };
 };
+
+const cleanupVisitorSessions = (now = Date.now()) => {
+  for (const [sessionId, session] of visitorSessions.entries()) {
+    if (now - session.lastSeen > VISITOR_TTL_MS) {
+      visitorSessions.delete(sessionId);
+    }
+  }
+};
+
+const cleanupSignalRecipientActivity = (now = Date.now()) => {
+  for (const [uid, timestamp] of signalRecipientActivity.entries()) {
+    if (now - timestamp > SIGNAL_RECIPIENT_TTL_MS) {
+      signalRecipientActivity.delete(uid);
+    }
+  }
+};
+
+const getActiveVisitorCount = (now = Date.now()) => {
+  cleanupVisitorSessions(now);
+  return visitorSessions.size;
+};
+
+const getActiveSignalRecipientCount = (now = Date.now()) => {
+  cleanupSignalRecipientActivity(now);
+  return signalRecipientActivity.size;
+};
+
+const formatInTimeZone = (date, timeZone, options) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone, ...options }).format(date);
+
+const formatKstDate = (value) => formatInTimeZone(value, 'Asia/Seoul', { year: 'numeric', month: '2-digit', day: '2-digit' });
+
+const formatKstTime = (value) =>
+  formatInTimeZone(value, 'Asia/Seoul', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
 
 const verifyAdminToken = (token) => token && ADMIN_SECRETS.has(token.trim());
 
@@ -341,6 +391,90 @@ app.post('/api/trading/auto', (req, res) => {
   return res.json({ ok: true, autoTradingEnabled: user.autoTradingEnabled });
 });
 
+app.post('/api/metrics/visit', async (req, res) => {
+  const now = Date.now();
+  const isoNow = new Date(now).toISOString();
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const clientIp = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : typeof forwardedFor === 'string'
+    ? forwardedFor.split(',')[0].trim()
+    : req.ip;
+
+  let { sessionId, path: visitedPath, referrer } = req.body || {};
+  let normalizedSession = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!normalizedSession) {
+    normalizedSession = randomId('visit');
+  }
+  if (normalizedSession.length > 80) {
+    normalizedSession = normalizedSession.slice(0, 80);
+  }
+
+  const existing = visitorSessions.get(normalizedSession);
+  const record = {
+    firstSeen: existing?.firstSeen ?? now,
+    lastSeen: now,
+    path: typeof visitedPath === 'string' ? visitedPath.slice(0, 200) : '/',
+    referrer: typeof referrer === 'string' ? referrer.slice(0, 200) : '',
+    userAgent: req.get('user-agent') || existing?.userAgent || '',
+    ip: clientIp || existing?.ip || '',
+    lastLoggedAt: existing?.lastLoggedAt ?? 0,
+  };
+
+  visitorSessions.set(normalizedSession, record);
+  metricsState.lastVisitAt = isoNow;
+  cleanupVisitorSessions(now);
+
+  let sheetResult = { ok: false, reason: 'skipped' };
+  const shouldLogToSheets = !existing || now - (existing.lastLoggedAt ?? 0) >= 10 * 60 * 1000;
+  if (shouldLogToSheets) {
+    const eventDate = new Date(now);
+    const kstDate = formatKstDate(eventDate);
+    const kstTime = formatKstTime(eventDate);
+    if (isSheetsConfigured()) {
+      sheetResult = await appendSpreadsheetRow([
+        kstDate,
+        kstTime,
+        normalizedSession,
+        record.path,
+        record.referrer || '',
+        record.userAgent,
+        record.ip,
+      ]);
+      metricsState.lastGoogleSheetsSync = {
+        timestamp: isoNow,
+        status: sheetResult.ok ? 'success' : 'error',
+        error: sheetResult.ok ? null : sheetResult.error || sheetResult.reason || 'unknown error',
+      };
+    } else {
+      metricsState.lastGoogleSheetsSync = {
+        timestamp: isoNow,
+        status: 'disabled',
+        error: null,
+      };
+    }
+    record.lastLoggedAt = now;
+    visitorSessions.set(normalizedSession, record);
+  } else if (!metricsState.lastGoogleSheetsSync) {
+    metricsState.lastGoogleSheetsSync = {
+      timestamp: isoNow,
+      status: isSheetsConfigured() ? 'pending' : 'disabled',
+      error: null,
+    };
+  }
+
+  if (!existing) {
+    addLog('info', `[VISIT] Recorded new visitor session ${normalizedSession} (${record.path})`);
+  }
+
+  res.json({
+    ok: true,
+    sessionId: normalizedSession,
+    activeVisitors: getActiveVisitorCount(now),
+    sheets: metricsState.lastGoogleSheetsSync,
+  });
+});
+
 app.post('/api/positions/close', (req, res) => {
   const { uid, accessKey, contract } = req.body || {};
   const user = verifyUserAccess(String(uid), String(accessKey));
@@ -387,6 +521,48 @@ adminRouter.get('/signals', (req, res) => {
   }
   const signalsForStrategy = adminSignals.get(strategyId) ?? [];
   res.json({ signals: signalsForStrategy.slice().reverse() });
+});
+
+adminRouter.get('/metrics', (req, res) => {
+  const now = Date.now();
+  const webhookReady = Boolean(webhook.secret && webhook.url && webhook.routes.size);
+  const issues = [];
+  if (!webhook.secret) {
+    issues.push('웹훅 비밀 키가 생성되지 않았습니다.');
+  }
+  if (!webhook.url) {
+    issues.push('웹훅 URL이 생성되지 않았습니다.');
+  }
+  if (!webhook.routes.size) {
+    issues.push('전달 대상 전략이 비어 있습니다.');
+  }
+
+  const lastSheets = metricsState.lastGoogleSheetsSync;
+
+  res.json({
+    visitors: {
+      active: getActiveVisitorCount(now),
+      totalSessions: visitorSessions.size,
+      lastVisitAt: metricsState.lastVisitAt,
+    },
+    signalRecipients: {
+      active: getActiveSignalRecipientCount(now),
+      lastSignalAt: metricsState.lastWebhook?.timestamp ?? null,
+      lastDeliveredCount: metricsState.lastWebhook?.delivered ?? 0,
+    },
+    webhook: {
+      ready: webhookReady,
+      issues,
+      routes: Array.from(webhook.routes),
+      lastSignal: metricsState.lastWebhook,
+    },
+    googleSheets: {
+      configured: isSheetsConfigured(),
+      lastStatus: lastSheets?.status ?? (isSheetsConfigured() ? 'pending' : 'disabled'),
+      lastSyncAt: lastSheets?.timestamp ?? null,
+      lastError: lastSheets?.error ?? null,
+    },
+  });
 });
 
 adminRouter.get('/webhook', (req, res) => {
@@ -586,7 +762,7 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     leverage: leverage === undefined ? undefined : Number(leverage),
   };
 
-  const delivered = deliverSignalToUsers(strategy, signal);
+  const delivery = deliverSignalToUsers(strategy, signal);
 
   const adminRecord = {
     id: signal.id,
@@ -597,17 +773,33 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     strategyId: strategy.id,
     indicator: resolvedIndicator,
     status:
-      delivered > 0
-        ? `delivered to ${delivered} user${delivered === 1 ? '' : 's'}`
+      delivery.delivered > 0
+        ? `delivered to ${delivery.delivered} user${delivery.delivered === 1 ? '' : 's'}`
         : 'no approved recipients',
   };
   addAdminSignal(strategy.id, adminRecord);
   addLog(
     'info',
-    `[WEBHOOK] ${strategy.name} → ${resolvedSymbol} (${signal.side.toUpperCase()}) delivered to ${delivered} user(s)`,
+    `[WEBHOOK] ${resolvedIndicator} | ${resolvedSymbol} | ${signal.action.toUpperCase()} ${signal.side.toUpperCase()} → ${delivery.delivered} user(s)`,
   );
 
-  res.json({ ok: true, delivered });
+  if (delivery.recipients.length) {
+    const now = Date.now();
+    delivery.recipients.forEach((uid) => signalRecipientActivity.set(uid, now));
+    cleanupSignalRecipientActivity(now);
+  }
+  metricsState.lastWebhook = {
+    timestamp: signal.timestamp,
+    indicator: resolvedIndicator,
+    symbol: resolvedSymbol,
+    action: signal.action,
+    side: signal.side,
+    delivered: delivery.delivered,
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+  };
+
+  res.json({ ok: true, delivered: delivery.delivered });
 });
 
 app.use(express.static(path.join(__dirname, 'dist')));

@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import Header from './components/Header';
 import PromoBanner from './components/PromoBanner';
 import ApiSettingsCard from './components/ApiSettingsCard';
@@ -12,6 +12,83 @@ import UsageGuide from './components/UsageGuide';
 
 const App: React.FC = () => {
   const isAdminRoute = useMemo(() => typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'), []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const sessionStorageKey = 'gate_visit_session';
+    const createSessionId = () => {
+      if (window.crypto?.randomUUID) {
+        return window.crypto.randomUUID();
+      }
+      return `visit_${Math.random().toString(36).slice(2, 12)}`;
+    };
+
+    const resolveSessionId = () => {
+      try {
+        const stored = window.localStorage.getItem(sessionStorageKey);
+        if (stored) {
+          return stored;
+        }
+      } catch (err) {
+        console.error('Failed to read stored session id', err);
+      }
+      const generated = createSessionId();
+      try {
+        window.localStorage.setItem(sessionStorageKey, generated);
+      } catch (err) {
+        console.error('Failed to persist session id', err);
+      }
+      return generated;
+    };
+
+    let currentSessionId = resolveSessionId();
+
+    const sendVisit = async () => {
+      try {
+        const response = await fetch('/api/metrics/visit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: currentSessionId,
+            path: `${window.location.pathname}${window.location.search}`,
+            referrer: document.referrer || '',
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.sessionId && data.sessionId !== currentSessionId) {
+            currentSessionId = data.sessionId;
+            try {
+              window.localStorage.setItem(sessionStorageKey, currentSessionId);
+            } catch (err) {
+              console.error('Failed to persist normalized session id', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to send visit metrics', err);
+      }
+    };
+
+    void sendVisit();
+    const visibilityHandler = () => {
+      if (document.visibilityState === 'visible') {
+        void sendVisit();
+      }
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
+    const intervalId = window.setInterval(() => {
+      void sendVisit();
+    }, 60_000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', visibilityHandler);
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   if (isAdminRoute) {
     return <AdminApp />;
