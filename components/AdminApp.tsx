@@ -132,7 +132,6 @@ const AdminApp: React.FC = () => {
   const [addingStrategy, setAddingStrategy] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState('');
   const [newStrategyDesc, setNewStrategyDesc] = useState('');
-  const [selectionMap, setSelectionMap] = useState<Record<string, string[]>>({});
   const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null);
 
   const initialTargets = loadInitialWebhookTargets();
@@ -145,10 +144,6 @@ const AdminApp: React.FC = () => {
   const [webhookCopied, setWebhookCopied] = useState(false);
   const [webhookSaving, setWebhookSaving] = useState(false);
   const [metricsState, setMetricsState] = useState<AdminRealtimeMetrics | null>(null);
-
-  const [editingUser, setEditingUser] = useState<string | null>(null);
-  const editingUidRef = useRef<string | null>(null);
-  const [savingUser, setSavingUser] = useState<string | null>(null);
 
   const authorized = useMemo(() => Boolean(token), [token]);
   const pendingUsers = useMemo(
@@ -173,10 +168,6 @@ const AdminApp: React.FC = () => {
     });
     return map;
   }, [overview?.strategies]);
-
-  useEffect(() => {
-    editingUidRef.current = editingUser;
-  }, [editingUser]);
 
   useEffect(() => {
     if (!actionMessage) return;
@@ -214,7 +205,6 @@ const AdminApp: React.FC = () => {
     }
     setOverview(null);
     setSignals([]);
-    setSelectionMap({});
     setSignalStrategy('');
     setOverviewUpdatedAt(null);
     setWebhookInfo(null);
@@ -222,9 +212,6 @@ const AdminApp: React.FC = () => {
     setWebhookLoading(false);
     setWebhookCopied(false);
     setWebhookSaving(false);
-    setEditingUser(null);
-    editingUidRef.current = null;
-    setSavingUser(null);
     setMetricsState(null);
   }, []);
 
@@ -281,24 +268,6 @@ const AdminApp: React.FC = () => {
         const data: OverviewResponse = await res.json();
         setOverview(data);
         setOverviewUpdatedAt(Date.now());
-
-        const nextSelection: Record<string, string[]> = {};
-        data.users.forEach((user) => {
-          const base = user.approvedStrategies && user.approvedStrategies.length
-            ? user.approvedStrategies
-            : user.requestedStrategies || [];
-          nextSelection[user.uid] = base.slice();
-        });
-        setSelectionMap((prev) => {
-          const merged: Record<string, string[]> = { ...prev };
-          Object.entries(nextSelection).forEach(([uid, strategies]) => {
-            if (editingUidRef.current === uid) {
-              return;
-            }
-            merged[uid] = strategies;
-          });
-          return merged;
-        });
         return data;
       } catch (err) {
         console.error(err);
@@ -490,20 +459,7 @@ const AdminApp: React.FC = () => {
       setWebhookSaving(false);
     }
   };
-  const toggleSelection = (uid: string, strategyId: string) => {
-    setSelectionMap((prev) => {
-      const current = new Set(prev[uid] || []);
-      if (current.has(strategyId)) {
-        current.delete(strategyId);
-      } else {
-        current.add(strategyId);
-      }
-      return { ...prev, [uid]: Array.from(current) };
-    });
-  };
-
   const approveUser = async (uid: string) => {
-    const selected = selectionMap[uid];
     try {
       setError('');
       const res = await fetch(buildAdminUrl('/users/approve'), {
@@ -511,7 +467,6 @@ const AdminApp: React.FC = () => {
         headers: buildHeaders(),
         body: JSON.stringify({
           uid,
-          ...(Array.isArray(selected) ? { strategies: selected } : {}),
         }),
       });
       if (res.status === 401) {
@@ -553,6 +508,37 @@ const AdminApp: React.FC = () => {
     } catch (err) {
       console.error(err);
       setError('사용자를 거절하는 중 오류가 발생했습니다.');
+    }
+  };
+
+  const deleteUser = async (uid: string) => {
+    if (!uid) return;
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm('사용자를 삭제하면 승인 정보와 액세스 키가 모두 제거됩니다. 계속하시겠습니까?');
+      if (!confirmed) {
+        return;
+      }
+    }
+    try {
+      setError('');
+      const res = await fetch(buildAdminUrl(`/users/${encodeURIComponent(uid)}`), {
+        method: 'DELETE',
+        headers: buildHeaders(),
+      });
+      if (res.status === 401) {
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
+        resetAdminState();
+        return;
+      }
+      if (!res.ok) {
+        setError('사용자 삭제에 실패했습니다.');
+        return;
+      }
+      setActionMessage('사용자를 삭제했습니다.');
+      await fetchOverview();
+    } catch (err) {
+      console.error(err);
+      setError('사용자를 삭제하는 중 오류가 발생했습니다.');
     }
   };
 
@@ -618,60 +604,6 @@ const AdminApp: React.FC = () => {
     }
   };
 
-  const startEditingUser = (user: AdminUser) => {
-    setSelectionMap((prev) => ({
-      ...prev,
-      [user.uid]: user.approvedStrategies?.slice() || [],
-    }));
-    setEditingUser(user.uid);
-  };
-
-  const cancelEditingUser = () => {
-    if (editingUser) {
-      const snapshot = overview?.users.find((candidate) => candidate.uid === editingUser);
-      if (snapshot) {
-        setSelectionMap((prev) => ({
-          ...prev,
-          [editingUser]: snapshot.approvedStrategies?.slice() || [],
-        }));
-      }
-    }
-    setEditingUser(null);
-  };
-
-  const saveUserStrategies = async (uid: string) => {
-    const selected = selectionMap[uid] || [];
-    if (selected.length === 0) {
-      setError('수정 사항을 저장하려면 최소 한 개의 전략을 선택하세요.');
-      return;
-    }
-    try {
-      setSavingUser(uid);
-      setError('');
-      const res = await fetch(buildAdminUrl(`/users/${encodeURIComponent(uid)}/strategies`), {
-        method: 'PATCH',
-        headers: buildHeaders(),
-        body: JSON.stringify({ strategies: selected }),
-      });
-      if (res.status === 401) {
-        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
-        resetAdminState();
-        return;
-      }
-      if (!res.ok) {
-        setError('사용자 전략을 업데이트하지 못했습니다.');
-        return;
-      }
-      setActionMessage('사용자 전략을 저장했습니다.');
-      setEditingUser(null);
-      await fetchOverview();
-    } catch (err) {
-      console.error(err);
-      setError('사용자 전략을 업데이트하는 중 오류가 발생했습니다.');
-    } finally {
-      setSavingUser(null);
-    }
-  };
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!inputToken.trim()) {
@@ -1165,65 +1097,44 @@ const AdminApp: React.FC = () => {
               <div className="text-sm text-gray-500">승인된 사용자가 없습니다.</div>
             ) : (
               approvedUsers.map((user) => {
-                const isEditing = editingUser === user.uid;
-                const currentSelection = selectionMap[user.uid] || [];
+                const approvedSet = new Set(user.approvedStrategies || []);
+                const receivingNames = (user.approvedStrategies || []).map(
+                  (id) => strategyNameMap.get(id) ?? id,
+                );
+                const blockedNames = (overview?.strategies || [])
+                  .filter((strategy) => !approvedSet.has(strategy.id))
+                  .map((strategy) => strategy.name ?? strategy.id);
                 return (
                   <div
                     key={user.uid}
-                    className={`bg-black/40 border border-gray-700 rounded px-3 py-2 space-y-2 ${
-                      isEditing ? 'border-gate-primary/60' : ''
-                    }`}
+                    className="bg-black/40 border border-gray-700 rounded px-3 py-2 space-y-2"
                   >
-                    <div className="font-semibold">{user.uid}</div>
-                    <div className="text-xs text-gray-400">액세스 키: {user.accessKey || '-'}</div>
-                    <div className="text-xs text-gray-500">전략: {(user.approvedStrategies || []).join(', ') || '-'}</div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="font-semibold break-all">{user.uid}</div>
+                        <div className="text-xs text-gray-400">액세스 키: {user.accessKey || '-'}</div>
+                      </div>
+                      <button
+                        onClick={() => deleteUser(user.uid)}
+                        className="px-3 py-1 text-xs font-semibold bg-red-600 text-white rounded hover:bg-red-500 transition"
+                      >
+                        사용자 삭제
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      수신 중 전략:{' '}
+                      <span className={receivingNames.length ? 'text-green-300' : 'text-gray-400'}>
+                        {receivingNames.length ? receivingNames.join(', ') : '없음'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      차단된 전략:{' '}
+                      <span className={blockedNames.length ? 'text-red-300' : 'text-gray-400'}>
+                        {blockedNames.length ? blockedNames.join(', ') : '없음'}
+                      </span>
+                    </div>
                     {user.approvedAt && (
                       <div className="text-xs text-gray-600">승인 일시: {new Date(user.approvedAt).toLocaleString()}</div>
-                    )}
-
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        <div className="text-xs text-gray-400">전략 선택:</div>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          {(overview?.strategies || []).map((strategy) => (
-                            <label
-                              key={`${user.uid}-edit-${strategy.id}`}
-                              className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={currentSelection.includes(strategy.id)}
-                                onChange={() => toggleSelection(user.uid, strategy.id)}
-                              />
-                              {strategy.name}
-                            </label>
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => saveUserStrategies(user.uid)}
-                            disabled={savingUser === user.uid}
-                            className={`px-3 py-1 bg-gate-primary text-black rounded text-xs font-semibold ${
-                              savingUser === user.uid ? 'opacity-60 cursor-not-allowed' : 'hover:bg-green-500 transition'
-                            }`}
-                          >
-                            저장
-                          </button>
-                          <button
-                            onClick={cancelEditingUser}
-                            className="px-3 py-1 border border-gray-600 rounded text-xs hover:bg-gray-800 transition"
-                          >
-                            취소
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => startEditingUser(user)}
-                        className="text-xs text-blue-400 hover:text-blue-300"
-                      >
-                        전략 편집
-                      </button>
                     )}
                   </div>
                 );
