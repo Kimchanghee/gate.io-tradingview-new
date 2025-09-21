@@ -49,6 +49,7 @@ interface AdminWebhookInfo {
   secret?: string;
   createdAt?: string;
   updatedAt?: string;
+  alreadyExists?: boolean;
 }
 
 interface AdminRealtimeMetrics {
@@ -398,6 +399,10 @@ const AdminApp: React.FC = () => {
 
   const generateWebhook = useCallback(async () => {
     if (!token) return;
+    if (webhookInfo?.url) {
+      setWebhookStatus('이미 생성된 웹훅 URL이 있습니다. 기존 URL을 사용하세요.');
+      return;
+    }
     try {
       setWebhookLoading(true);
       setWebhookStatus('');
@@ -416,14 +421,18 @@ const AdminApp: React.FC = () => {
       }
       const data: AdminWebhookInfo = await res.json();
       setWebhookInfo(data);
-      setActionMessage('새 웹훅 URL을 생성했습니다.');
+      if (data.alreadyExists) {
+        setWebhookStatus('이미 생성된 웹훅 URL이 있어 기존 값을 불러왔습니다.');
+      } else {
+        setActionMessage('새 웹훅 URL을 생성했습니다.');
+      }
     } catch (err) {
       console.error(err);
       setWebhookStatus('웹훅 URL 생성에 실패했습니다.');
     } finally {
       setWebhookLoading(false);
     }
-  }, [token, buildAdminUrl, buildHeaders, resetAdminState]);
+  }, [token, buildAdminUrl, buildHeaders, resetAdminState, webhookInfo?.url]);
 
   const copyWebhookUrl = useCallback(async () => {
     if (!webhookInfo?.url) return;
@@ -776,6 +785,7 @@ const AdminApp: React.FC = () => {
   const totalUsers = overview?.stats?.totalUsers ?? overview?.users?.length ?? 0;
   const pendingCount = overview?.stats?.pending ?? pendingUsers.length;
   const approvedCount = overview?.stats?.approved ?? approvedUsers.length;
+  const canGenerateWebhook = !webhookInfo?.url;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
@@ -908,17 +918,19 @@ const AdminApp: React.FC = () => {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={generateWebhook}
-              disabled={webhookLoading}
-              className={`px-4 py-2 rounded text-sm font-semibold ${
-                webhookLoading
-                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                  : 'bg-gate-primary text-black hover:bg-green-500 transition'
-              }`}
-            >
-              새 URL 생성
-            </button>
+            {canGenerateWebhook && (
+              <button
+                onClick={generateWebhook}
+                disabled={webhookLoading}
+                className={`px-4 py-2 rounded text-sm font-semibold ${
+                  webhookLoading
+                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                    : 'bg-gate-primary text-black hover:bg-green-500 transition'
+                }`}
+              >
+                새 URL 생성
+              </button>
+            )}
             <button
               onClick={() => fetchWebhookInfo()}
               disabled={webhookLoading}
@@ -929,6 +941,11 @@ const AdminApp: React.FC = () => {
               상태 새로고침
             </button>
           </div>
+          {!canGenerateWebhook && (
+            <div className="text-xs text-gray-400 bg-black/30 border border-gray-700 rounded px-3 py-2">
+              이미 생성된 웹훅 URL은 변경할 수 없습니다. 위 주소를 사용하세요.
+            </div>
+          )}
           {webhookStatus && <div className="text-xs text-gray-300">{webhookStatus}</div>}
         </Card>
 
