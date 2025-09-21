@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
 import { loadPersistentState, savePersistentState } from './services/persistence.js';
+import { fetchGateSnapshot, fetchGateAccounts, fetchGatePositions, GateApiError } from './services/gateApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +39,87 @@ const userPositions = new Map();
 const userConnections = new Map();
 const visitorSessions = new Map();
 const signalRecipientActivity = new Map();
+
+const NETWORK_MAINNET = 'mainnet';
+const NETWORK_TESTNET = 'testnet';
+
+const resolveNetworkValue = (value, fallback = NETWORK_MAINNET) => {
+  if (typeof value === 'boolean') {
+    return value ? NETWORK_TESTNET : NETWORK_MAINNET;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === NETWORK_TESTNET) {
+      return NETWORK_TESTNET;
+    }
+    if (normalized === NETWORK_MAINNET) {
+      return NETWORK_MAINNET;
+    }
+  }
+  return fallback;
+};
+
+const resolveNetworks = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return [NETWORK_MAINNET, NETWORK_TESTNET];
+  }
+  return [resolveNetworkValue(value)];
+};
+
+const ensureUserConnectionRecord = (uid) => {
+  if (!userConnections.has(uid)) {
+    userConnections.set(uid, {
+      [NETWORK_MAINNET]: null,
+      [NETWORK_TESTNET]: null,
+    });
+  }
+  return userConnections.get(uid);
+};
+
+const getUserConnectionForNetwork = (uid, network) => {
+  const record = ensureUserConnectionRecord(uid);
+  return record?.[network] ?? null;
+};
+
+const setUserConnectionForNetwork = (uid, network, value) => {
+  const record = ensureUserConnectionRecord(uid);
+  record[network] = value;
+  userConnections.set(uid, record);
+  return value;
+};
+
+const patchUserConnectionForNetwork = (uid, network, patch) => {
+  const current = getUserConnectionForNetwork(uid, network) || {};
+  const next = { ...current, ...patch };
+  return setUserConnectionForNetwork(uid, network, next);
+};
+
+const clearUserConnectionForNetwork = (uid, network) => setUserConnectionForNetwork(uid, network, null);
+
+const ensureUserPositionsRecord = (uid) => {
+  if (!userPositions.has(uid)) {
+    userPositions.set(uid, {
+      [NETWORK_MAINNET]: [],
+      [NETWORK_TESTNET]: [],
+    });
+  }
+  return userPositions.get(uid);
+};
+
+const getPositionsForNetwork = (uid, network) => {
+  const record = ensureUserPositionsRecord(uid);
+  const positions = record?.[network];
+  return Array.isArray(positions) ? positions : [];
+};
+
+const setPositionsForNetwork = (uid, network, positions) => {
+  const record = ensureUserPositionsRecord(uid);
+  record[network] = Array.isArray(positions) ? positions : [];
+  userPositions.set(uid, record);
+  return record[network];
+};
+
+const clearPositionsForNetwork = (uid, network) => setPositionsForNetwork(uid, network, []);
 
 const metricsState = {
   lastVisitAt: null,
@@ -112,8 +194,16 @@ if (persistedState?.users?.length) {
     if (!userSignals.has(record.uid)) {
       userSignals.set(record.uid, Array.isArray(entry.signals) ? entry.signals : []);
     }
-    if (!userPositions.has(record.uid)) {
-      userPositions.set(record.uid, Array.isArray(entry.positions) ? entry.positions : []);
+    const storedPositions = ensureUserPositionsRecord(record.uid);
+    if (entry.positions && typeof entry.positions === 'object') {
+      const mainnetPositions = Array.isArray(entry.positions[NETWORK_MAINNET])
+        ? entry.positions[NETWORK_MAINNET]
+        : [];
+      const testnetPositions = Array.isArray(entry.positions[NETWORK_TESTNET])
+        ? entry.positions[NETWORK_TESTNET]
+        : [];
+      storedPositions[NETWORK_MAINNET] = mainnetPositions;
+      storedPositions[NETWORK_TESTNET] = testnetPositions;
     }
   });
 }
@@ -366,7 +456,7 @@ app.post('/api/register', async (req, res) => {
   };
   users.set(uid, userRecord);
   userSignals.set(uid, []);
-  userPositions.set(uid, []);
+  ensureUserPositionsRecord(uid);
   addLog('info', `[REGISTER] Received new registration from UID ${uid}.`);
   await persistState();
   return res.json({ ok: true, status: userRecord.status });
@@ -414,89 +504,173 @@ app.get('/api/user/signals', (req, res) => {
   return res.json({ signals: payload });
 });
 
-app.get('/api/positions', (req, res) => {
+app.get('/api/positions', async (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   const key = req.query.key ? String(req.query.key) : '';
   const user = verifyUserAccess(uid, key);
   if (!user) {
     return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
   }
-  const positions = userPositions.get(uid) ?? [];
-  return res.json({ positions });
+  const network = resolveNetworkValue(req.query.network);
+  const connection = getUserConnectionForNetwork(uid, network);
+  if (!connection || !connection.apiKey || !connection.apiSecret) {
+    const fallback = getPositionsForNetwork(uid, network);
+    return res.status(404).json({ ok: false, message: 'API 연결 정보가 없습니다.', positions: fallback });
+  }
+
+  try {
+    const positions = await fetchGatePositions({
+      apiKey: String(connection.apiKey),
+      apiSecret: String(connection.apiSecret),
+      isTestnet: network === NETWORK_TESTNET,
+    });
+    setPositionsForNetwork(uid, network, positions);
+    patchUserConnectionForNetwork(uid, network, {
+      connected: true,
+      lastPositionsSyncAt: nowIso(),
+      lastError: null,
+    });
+    return res.json({ positions });
+  } catch (error) {
+    const status = error instanceof GateApiError && error.status ? error.status : 502;
+    const message = error instanceof GateApiError
+      ? error.message
+      : '포지션 정보를 불러오지 못했습니다.';
+    patchUserConnectionForNetwork(uid, network, {
+      lastError: message,
+      connected: status !== 401 && status !== 403 ? true : false,
+    });
+    console.error(`[Gate.io] Failed to load positions for UID ${uid} (${network}):`, error?.message || error);
+    const fallback = getPositionsForNetwork(uid, network);
+    return res.status(status).json({ ok: false, message, positions: fallback });
+  }
 });
 
-const sampleAccounts = {
-  futures: {
-    total: 18750.32,
-    available: 12200.12,
-    positionMargin: 4200.54,
-    orderMargin: 850.12,
-    unrealisedPnl: 420.83,
-    currency: 'USDT',
-  },
-  spot: [
-    { currency: 'USDT', available: 6200, locked: 0, total: 6200 },
-    { currency: 'BTC', available: 0.42, locked: 0.02, total: 0.44 },
-  ],
-  margin: [
-    {
-      currencyPair: 'BTC/USDT',
-      base: { currency: 'BTC', available: 0.12, locked: 0, borrowed: 0, interest: 0 },
-      quote: { currency: 'USDT', available: 3100, locked: 0, borrowed: 0, interest: 0 },
-      risk: 12.4,
-    },
-  ],
-  options: {
-    total: 2400,
-    available: 1800,
-    positionValue: 450,
-    orderMargin: 120,
-    unrealisedPnl: 80,
-  },
-  totalEstimatedValue: 27350.15,
-};
-
-app.post('/api/connect', (req, res) => {
-  const { uid, accessKey, apiKey, apiSecret } = req.body || {};
+app.post('/api/connect', async (req, res) => {
+  const { uid, accessKey, apiKey, apiSecret, isTestnet, network } = req.body || {};
   if (!uid || !accessKey || !apiKey || !apiSecret) {
     return res.status(400).json({ ok: false, message: 'Missing credentials.' });
   }
+
   const user = verifyUserAccess(String(uid), String(accessKey));
   if (!user) {
     return res.status(403).json({ ok: false, message: 'UID is not approved yet.' });
   }
-  userConnections.set(uid, {
-    connected: true,
-    lastConnectedAt: nowIso(),
-    accounts: sampleAccounts,
-  });
-  addLog('info', `[API] Connected user ${uid} with provided API key.`);
-  return res.json({
-    ok: true,
-    connected: true,
-    accounts: sampleAccounts,
-    positions: userPositions.get(uid) ?? [],
-    autoTradingEnabled: Boolean(user.autoTradingEnabled),
-  });
+
+  const networkKey = resolveNetworkValue(
+    typeof isTestnet === 'boolean' ? isTestnet : network,
+  );
+
+  try {
+    const snapshot = await fetchGateSnapshot({
+      apiKey: String(apiKey),
+      apiSecret: String(apiSecret),
+      isTestnet: networkKey === NETWORK_TESTNET,
+    });
+
+    patchUserConnectionForNetwork(uid, networkKey, {
+      connected: true,
+      lastConnectedAt: nowIso(),
+      apiKey: String(apiKey),
+      apiSecret: String(apiSecret),
+      accounts: snapshot.accounts,
+      lastError: null,
+    });
+
+    setPositionsForNetwork(uid, networkKey, snapshot.positions);
+
+    addLog('info', `[API] Connected user ${uid} (${networkKey}).`);
+
+    return res.json({
+      ok: true,
+      connected: true,
+      accounts: snapshot.accounts,
+      positions: snapshot.positions,
+      autoTradingEnabled: Boolean(user.autoTradingEnabled),
+    });
+  } catch (error) {
+    const status = error instanceof GateApiError && error.status ? error.status : 502;
+    const message = error instanceof GateApiError
+      ? error.message
+      : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
+
+    patchUserConnectionForNetwork(uid, networkKey, {
+      connected: false,
+      lastConnectedAt: nowIso(),
+      apiKey: String(apiKey),
+      apiSecret: String(apiSecret),
+      lastError: message,
+    });
+
+    console.error(`[Gate.io] Failed to connect UID ${uid} (${networkKey}):`, error?.message || error);
+
+    return res.status(status).json({ ok: false, message });
+  }
 });
 
 app.post('/api/disconnect', (req, res) => {
-  const { uid } = req.body || {};
-  if (uid && userConnections.has(uid)) {
-    userConnections.set(uid, { ...userConnections.get(uid), connected: false });
-    addLog('info', `[API] Disconnected user ${uid}.`);
+  const { uid, network } = req.body || {};
+  if (!uid) {
+    return res.json({ ok: true });
   }
+
+  const networks = resolveNetworks(network);
+  networks.forEach((networkKey) => {
+    const connection = getUserConnectionForNetwork(uid, networkKey);
+    if (connection) {
+      addLog('info', `[API] Disconnected user ${uid} (${networkKey}).`);
+    }
+    clearUserConnectionForNetwork(uid, networkKey);
+    clearPositionsForNetwork(uid, networkKey);
+  });
+
   res.json({ ok: true });
 });
 
-app.get('/api/accounts/all', (req, res) => {
+app.get('/api/accounts/all', async (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   const key = req.query.key ? String(req.query.key) : '';
   const user = verifyUserAccess(uid, key);
   if (!user) {
     return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
   }
-  res.json(sampleAccounts);
+
+  const network = resolveNetworkValue(req.query.network);
+  const connection = getUserConnectionForNetwork(uid, network);
+  if (!connection || !connection.apiKey || !connection.apiSecret) {
+    return res.status(404).json({ ok: false, message: 'API 연결 정보가 없습니다.' });
+  }
+
+  try {
+    const accounts = await fetchGateAccounts({
+      apiKey: String(connection.apiKey),
+      apiSecret: String(connection.apiSecret),
+      isTestnet: network === NETWORK_TESTNET,
+    });
+
+    patchUserConnectionForNetwork(uid, network, {
+      accounts,
+      connected: true,
+      lastSyncedAt: nowIso(),
+      lastError: null,
+    });
+
+    return res.json(accounts);
+  } catch (error) {
+    const status = error instanceof GateApiError && error.status ? error.status : 502;
+    const message = error instanceof GateApiError
+      ? error.message
+      : '계정 정보를 불러오지 못했습니다.';
+
+    patchUserConnectionForNetwork(uid, network, {
+      lastError: message,
+      connected: status !== 401 && status !== 403 ? true : false,
+    });
+
+    console.error(`[Gate.io] Failed to refresh accounts for UID ${uid} (${network}):`, error?.message || error);
+
+    return res.status(status).json({ ok: false, message });
+  }
 });
 
 app.post('/api/trading/auto', async (req, res) => {
@@ -598,7 +772,7 @@ app.post('/api/metrics/visit', async (req, res) => {
 });
 
 app.post('/api/positions/close', (req, res) => {
-  const { uid, accessKey, contract } = req.body || {};
+  const { uid, accessKey, contract, network } = req.body || {};
   const user = verifyUserAccess(String(uid), String(accessKey));
   if (!user) {
     return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
@@ -606,10 +780,11 @@ app.post('/api/positions/close', (req, res) => {
   if (!contract) {
     return res.status(400).json({ ok: false, message: 'Contract is required.' });
   }
-  const positions = userPositions.get(user.uid) ?? [];
+  const networkKey = resolveNetworkValue(network);
+  const positions = getPositionsForNetwork(user.uid, networkKey);
   const nextPositions = positions.filter((position) => position.contract !== contract);
-  userPositions.set(user.uid, nextPositions);
-  addLog('info', `[POSITION] Closed ${contract} for UID ${user.uid}.`);
+  setPositionsForNetwork(user.uid, networkKey, nextPositions);
+  addLog('info', `[POSITION] Closed ${contract} for UID ${user.uid} (${networkKey}).`);
   return res.json({ ok: true });
 });
 

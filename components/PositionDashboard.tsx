@@ -28,7 +28,23 @@ const PositionDashboard: React.FC = () => {
 
   const uid = state.user.uid;
   const accessKey = state.user.accessKey || '';
+  const network = state.network;
   const canLoadPositions = Boolean(uid && accessKey && state.user.status === 'approved');
+
+  const applyPositions = useCallback((positionsData: Position[]) => {
+    const enhancedPositions = positionsData.map((pos: Position) => ({
+      ...pos,
+      value: Math.abs(pos.size) * pos.markPrice
+    }));
+
+    setPositions(enhancedPositions);
+
+    const aggregatedPnl = enhancedPositions.reduce((sum: number, pos: Position) => sum + pos.pnl, 0);
+    const aggregatedInvestment = enhancedPositions.reduce((sum: number, pos: Position) => sum + pos.margin, 0);
+
+    setTotalPnl(aggregatedPnl);
+    setTotalInvestment(aggregatedInvestment);
+  }, []);
 
   const fetchPositions = useCallback(async () => {
     if (!canLoadPositions) {
@@ -42,48 +58,29 @@ const PositionDashboard: React.FC = () => {
     try {
       setIsLoading(true);
       setErrorMessage(null);
-      const params = new URLSearchParams({ uid, key: accessKey });
+      const params = new URLSearchParams({ uid, key: accessKey, network });
       const response = await fetch(`/api/positions?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
       const raw = await response.text();
-      if (!raw.trim()) {
-        setPositions([]);
-        setTotalPnl(0);
-        setTotalInvestment(0);
-        setLastUpdated(new Date().toISOString());
-        return;
+
+      let parsed: any = null;
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw);
+        } catch (parseError) {
+          console.warn('Received invalid JSON when loading positions', parseError);
+        }
       }
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (parseError) {
-        console.warn('Received invalid JSON when loading positions', parseError);
-        setPositions([]);
-        setTotalPnl(0);
-        setTotalInvestment(0);
+      if (!response.ok) {
+        const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
+        applyPositions(fallbackPositions);
         setLastUpdated(new Date().toISOString());
-        return;
+        const message = parsed?.message || raw || `HTTP ${response.status}`;
+        throw new Error(message);
       }
 
-      const data = parsed as { positions?: Position[] };
-      const positionsData = Array.isArray(data.positions) ? data.positions : [];
-
-      const enhancedPositions = positionsData.map((pos: Position) => ({
-        ...pos,
-        value: Math.abs(pos.size) * pos.markPrice
-      }));
-
-      setPositions(enhancedPositions);
-
-      const aggregatedPnl = enhancedPositions.reduce((sum: number, pos: Position) => sum + pos.pnl, 0);
-      const aggregatedInvestment = enhancedPositions.reduce((sum: number, pos: Position) => sum + pos.margin, 0);
-
-      setTotalPnl(aggregatedPnl);
-      setTotalInvestment(aggregatedInvestment);
+      const positionsData = Array.isArray(parsed?.positions) ? parsed.positions : [];
+      applyPositions(positionsData);
       setLastUpdated(new Date().toISOString());
     } catch (error) {
       console.error('Position fetch failed:', error);
@@ -92,7 +89,7 @@ const PositionDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accessKey, canLoadPositions, uid]);
+  }, [accessKey, applyPositions, canLoadPositions, network, uid]);
 
   useEffect(() => {
     fetchPositions();
