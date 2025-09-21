@@ -3,7 +3,6 @@ import Header from './components/Header';
 import PromoBanner from './components/PromoBanner';
 import ApiSettingsCard from './components/ApiSettingsCard';
 import PositionDashboard from './components/PositionDashboard';
-import LogsCard from './components/LogsCard';
 import NotificationHandler from './components/NotificationHandler';
 import AdminApp from './components/AdminApp';
 import RegistrationCard from './components/RegistrationCard';
@@ -114,9 +113,6 @@ const App: React.FC = () => {
               <PositionDashboard />
             </div>
 
-            <div className="mb-5">
-              <LogsCard />
-            </div>
           </main>
         </div>
       </div>

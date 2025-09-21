@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Card from './Card';
+import LogsCard from './LogsCard';
 
 interface AdminStrategy {
   id: string;
@@ -502,17 +503,16 @@ const AdminApp: React.FC = () => {
   };
 
   const approveUser = async (uid: string) => {
-    const selected = selectionMap[uid] || [];
-    if (selected.length === 0) {
-      setError('사용자를 승인하기 전에 최소 한 개의 전략을 선택하세요.');
-      return;
-    }
+    const selected = selectionMap[uid];
     try {
       setError('');
       const res = await fetch(buildAdminUrl('/users/approve'), {
         method: 'POST',
         headers: buildHeaders(),
-        body: JSON.stringify({ uid, strategies: selected }),
+        body: JSON.stringify({
+          uid,
+          ...(Array.isArray(selected) ? { strategies: selected } : {}),
+        }),
       });
       if (res.status === 401) {
         setError('관리자 토큰이 더 이상 유효하지 않습니다.');
@@ -1126,6 +1126,9 @@ const AdminApp: React.FC = () => {
             )}
           </div>
         </Card>
+        <div className="xl:col-span-2">
+          <LogsCard />
+        </div>
       </div>
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="승인 대기 UID" className="space-y-3">
@@ -1134,11 +1137,8 @@ const AdminApp: React.FC = () => {
           ) : (
             pendingUsers.map((user) => (
               <div key={user.uid} className="bg-black/40 border border-gray-700 rounded px-3 py-3 space-y-2">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="font-semibold">UID: {user.uid}</div>
-                    <div className="text-xs text-gray-500">요청한 전략: {(user.requestedStrategies || []).join(', ') || '-'}</div>
-                  </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="font-semibold break-all">UID: {user.uid}</div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => approveUser(user.uid)}
@@ -1153,22 +1153,6 @@ const AdminApp: React.FC = () => {
                       거절
                     </button>
                   </div>
-                </div>
-                <div className="text-xs text-gray-400">전략 선택:</div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {(overview?.strategies || []).map((strategy) => (
-                    <label
-                      key={`${user.uid}-${strategy.id}`}
-                      className="flex items-center gap-1 bg-gray-900 border border-gray-700 px-2 py-1 rounded"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={(selectionMap[user.uid] || []).includes(strategy.id)}
-                        onChange={() => toggleSelection(user.uid, strategy.id)}
-                      />
-                      {strategy.name}
-                    </label>
-                  ))}
                 </div>
               </div>
             ))
