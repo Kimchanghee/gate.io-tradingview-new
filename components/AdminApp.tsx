@@ -231,12 +231,12 @@ const AdminApp: React.FC = () => {
         setError('');
         const res = await fetch(overviewUrl, { headers: buildHeaders(authToken) });
         if (res.status === 401) {
-          setError('The admin token is no longer valid.');
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
           resetAdminState();
           return null;
         }
         if (!res.ok) {
-          setError('Failed to load the latest admin data.');
+          setError('최신 관리자 데이터를 불러오지 못했습니다.');
           return null;
         }
         const data: OverviewResponse = await res.json();
@@ -263,7 +263,7 @@ const AdminApp: React.FC = () => {
         return data;
       } catch (err) {
         console.error(err);
-        setError('An unexpected error occurred while loading admin data.');
+        setError('관리자 데이터를 불러오는 중 예상치 못한 오류가 발생했습니다.');
         return null;
       } finally {
         setLoading(false);
@@ -282,7 +282,7 @@ const AdminApp: React.FC = () => {
           { headers: buildHeaders(authToken) },
         );
         if (res.status === 401) {
-          setError('The admin token is no longer valid.');
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
           resetAdminState();
           return;
         }
@@ -307,17 +307,17 @@ const AdminApp: React.FC = () => {
         setWebhookStatus('');
         const res = await fetch(buildAdminUrl('/webhook'), { headers: buildHeaders(authToken) });
         if (res.status === 401) {
-          setError('The admin token is no longer valid.');
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
           resetAdminState();
           return null;
         }
         if (res.status === 404) {
           setWebhookInfo(null);
-          setWebhookStatus('No webhook is registered yet. Generate a new one below.');
+          setWebhookStatus('등록된 웹훅이 없습니다. 아래 버튼으로 새 URL을 발급하세요.');
           return null;
         }
         if (!res.ok) {
-          setWebhookStatus('Unable to load the webhook details.');
+          setWebhookStatus('웹훅 정보를 불러올 수 없습니다.');
           return null;
         }
         const data: AdminWebhookInfo = await res.json();
@@ -325,7 +325,7 @@ const AdminApp: React.FC = () => {
         return data;
       } catch (err) {
         console.error(err);
-        setWebhookStatus('Unable to load the webhook details.');
+        setWebhookStatus('웹훅 정보를 불러올 수 없습니다.');
         return null;
       } finally {
         setWebhookLoading(false);
@@ -344,20 +344,20 @@ const AdminApp: React.FC = () => {
         headers: buildHeaders(),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setWebhookStatus('Failed to generate the webhook URL.');
+        setWebhookStatus('웹훅 URL 생성에 실패했습니다.');
         return;
       }
       const data: AdminWebhookInfo = await res.json();
       setWebhookInfo(data);
-      setActionMessage('Generated a new webhook URL.');
+      setActionMessage('새 웹훅 URL을 생성했습니다.');
     } catch (err) {
       console.error(err);
-      setWebhookStatus('Failed to generate the webhook URL.');
+      setWebhookStatus('웹훅 URL 생성에 실패했습니다.');
     } finally {
       setWebhookLoading(false);
     }
@@ -368,13 +368,13 @@ const AdminApp: React.FC = () => {
     try {
       await navigator.clipboard.writeText(webhookInfo.url);
       setWebhookCopied(true);
-      setActionMessage('Webhook URL copied to clipboard.');
+      setActionMessage('웹훅 URL을 클립보드에 복사했습니다.');
       if (typeof window !== 'undefined') {
         window.setTimeout(() => setWebhookCopied(false), 1500);
       }
     } catch (err) {
       console.error(err);
-      setWebhookStatus('Clipboard copy failed.');
+      setWebhookStatus('클립보드 복사에 실패했습니다.');
     }
   }, [webhookInfo?.url]);
 
@@ -401,19 +401,19 @@ const AdminApp: React.FC = () => {
         body: JSON.stringify({ strategies: webhookTargets }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setWebhookStatus('Could not save the selected strategies.');
+        setWebhookStatus('선택한 전략을 저장하지 못했습니다.');
         return;
       }
-      setWebhookStatus('Webhook route selection saved.');
-      setActionMessage('Updated webhook delivery targets.');
+      setWebhookStatus('웹훅 전달 대상이 저장되었습니다.');
+      setActionMessage('웹훅 전달 대상을 갱신했습니다.');
     } catch (err) {
       console.error(err);
-      setWebhookStatus('Could not save the selected strategies.');
+      setWebhookStatus('선택한 전략을 저장하지 못했습니다.');
     } finally {
       setWebhookSaving(false);
     }
@@ -433,7 +433,7 @@ const AdminApp: React.FC = () => {
   const approveUser = async (uid: string) => {
     const selected = selectionMap[uid] || [];
     if (selected.length === 0) {
-      setError('Select at least one strategy before approving a user.');
+      setError('사용자를 승인하기 전에 최소 한 개의 전략을 선택하세요.');
       return;
     }
     try {
@@ -444,19 +444,19 @@ const AdminApp: React.FC = () => {
         body: JSON.stringify({ uid, strategies: selected }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setError('Failed to approve the user.');
+        setError('사용자 승인이 실패했습니다.');
         return;
       }
-      setActionMessage('User approved.');
+      setActionMessage('사용자를 승인했습니다.');
       await fetchOverview();
     } catch (err) {
       console.error(err);
-      setError('An error occurred while approving the user.');
+      setError('사용자를 승인하는 중 오류가 발생했습니다.');
     }
   };
 
@@ -469,19 +469,19 @@ const AdminApp: React.FC = () => {
         body: JSON.stringify({ uid }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setError('Failed to deny the user.');
+        setError('사용자 거절에 실패했습니다.');
         return;
       }
-      setActionMessage('User denied.');
+      setActionMessage('사용자를 거절했습니다.');
       await fetchOverview();
     } catch (err) {
       console.error(err);
-      setError('An error occurred while denying the user.');
+      setError('사용자를 거절하는 중 오류가 발생했습니다.');
     }
   };
 
@@ -502,21 +502,21 @@ const AdminApp: React.FC = () => {
         }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setError('Failed to add the strategy.');
+        setError('전략 추가에 실패했습니다.');
         return;
       }
       setNewStrategyName('');
       setNewStrategyDesc('');
-      setActionMessage('Strategy added.');
+      setActionMessage('전략이 추가되었습니다.');
       await fetchOverview();
     } catch (err) {
       console.error(err);
-      setError('An error occurred while adding the strategy.');
+      setError('전략을 추가하는 중 오류가 발생했습니다.');
     } finally {
       setAddingStrategy(false);
     }
@@ -531,19 +531,19 @@ const AdminApp: React.FC = () => {
         body: JSON.stringify({ active: strategy.active === false }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setError('Failed to change the strategy state.');
+        setError('전략 상태 변경에 실패했습니다.');
         return;
       }
-      setActionMessage('Strategy state updated.');
+      setActionMessage('전략 상태를 업데이트했습니다.');
       await fetchOverview();
     } catch (err) {
       console.error(err);
-      setError('An error occurred while changing the strategy state.');
+      setError('전략 상태를 변경하는 중 오류가 발생했습니다.');
     }
   };
 
@@ -571,7 +571,7 @@ const AdminApp: React.FC = () => {
   const saveUserStrategies = async (uid: string) => {
     const selected = selectionMap[uid] || [];
     if (selected.length === 0) {
-      setError('Select at least one strategy before saving changes.');
+      setError('수정 사항을 저장하려면 최소 한 개의 전략을 선택하세요.');
       return;
     }
     try {
@@ -583,20 +583,20 @@ const AdminApp: React.FC = () => {
         body: JSON.stringify({ strategies: selected }),
       });
       if (res.status === 401) {
-        setError('The admin token is no longer valid.');
+        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
         resetAdminState();
         return;
       }
       if (!res.ok) {
-        setError('Could not update the user strategies.');
+        setError('사용자 전략을 업데이트하지 못했습니다.');
         return;
       }
-      setActionMessage('User strategies updated.');
+      setActionMessage('사용자 전략을 저장했습니다.');
       setEditingUser(null);
       await fetchOverview();
     } catch (err) {
       console.error(err);
-      setError('An error occurred while updating the user strategies.');
+      setError('사용자 전략을 업데이트하는 중 오류가 발생했습니다.');
     } finally {
       setSavingUser(null);
     }
@@ -604,7 +604,7 @@ const AdminApp: React.FC = () => {
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!inputToken.trim()) {
-      setError('Enter the administrator token before signing in.');
+      setError('관리자 토큰을 입력한 후 로그인하세요.');
       return;
     }
 
@@ -664,20 +664,20 @@ const AdminApp: React.FC = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
         <div className="max-w-md mx-auto">
-          <Card title="Admin sign-in">
+          <Card title="관리자 로그인">
             <div className="bg-black/30 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 space-y-2 mb-4">
-              <p>Add <span className="text-gate-primary">/admin</span> to the front-end URL, sign in with the administrator token, and manage UID approvals plus signal delivery from a single console.</p>
-              <p>Webhook configuration is no longer exposed to members. Decide which strategies receive webhook updates right here.</p>
+              <p>프론트엔드 주소 끝에 <span className="text-gate-primary">/admin</span>을 붙여 접속하면 UID 승인과 신호 전달을 한 화면에서 관리할 수 있습니다.</p>
+              <p>웹훅 설정은 사용자에게 노출되지 않습니다. 어떤 전략에 웹훅을 보낼지 이 화면에서 결정하세요.</p>
             </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-sm mb-1">Administrator token</label>
+                <label className="block text-sm mb-1">관리자 토큰</label>
                 <input
                   type="password"
                   value={inputToken}
                   onChange={(event) => setInputToken(event.target.value)}
                   className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded"
-                  placeholder="ADMIN_SECRET value"
+                  placeholder="ADMIN_SECRET 값"
                 />
               </div>
               {error && <div className="text-sm text-red-400">{error}</div>}
@@ -685,7 +685,7 @@ const AdminApp: React.FC = () => {
                 type="submit"
                 className="w-full py-2 bg-gate-primary text-black rounded font-semibold hover:bg-green-500 transition"
               >
-                Sign in
+                로그인
               </button>
             </form>
           </Card>
@@ -701,20 +701,20 @@ const AdminApp: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
-        <h1 className="text-2xl font-bold">Admin Console</h1>
+        <h1 className="text-2xl font-bold">관리자 콘솔</h1>
         <div className="flex items-center gap-3">
           <button
             onClick={() => fetchOverview()}
             className="px-3 py-1 bg-gate-primary text-black rounded hover:bg-green-500 transition"
             disabled={loading}
           >
-            Refresh
+            새로고침
           </button>
           <button
             onClick={handleLogout}
             className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition"
           >
-            Log out
+            로그아웃
           </button>
         </div>
       </div>
@@ -728,25 +728,25 @@ const AdminApp: React.FC = () => {
       {error && <div className="mb-4 text-sm text-red-400">{error}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card title="Registered users" className="text-center">
+        <Card title="등록된 사용자" className="text-center">
           <div className="text-3xl font-bold text-gate-primary">{totalUsers}</div>
-          <div className="text-xs text-gray-400 mt-2">Total users</div>
+          <div className="text-xs text-gray-400 mt-2">총 사용자 수</div>
         </Card>
-        <Card title="Pending approvals" className="text-center">
+        <Card title="승인 대기" className="text-center">
           <div className="text-3xl font-bold text-yellow-300">{pendingCount}</div>
-          <div className="text-xs text-gray-400 mt-2">Waiting for review</div>
+          <div className="text-xs text-gray-400 mt-2">검토 대기</div>
         </Card>
-        <Card title="Approved users" className="text-center">
+        <Card title="승인 완료" className="text-center">
           <div className="text-3xl font-bold text-green-300">{approvedCount}</div>
           <div className="text-xs text-gray-400 mt-2">
-            {overviewUpdatedAt ? `Updated ${new Date(overviewUpdatedAt).toLocaleString()}` : 'No update timestamp'}
+            {overviewUpdatedAt ? `업데이트: ${new Date(overviewUpdatedAt).toLocaleString()}` : '업데이트 이력 없음'}
           </div>
         </Card>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <Card title="Unique webhook URL" className="space-y-3">
+        <Card title="트레이딩뷰 웹훅 URL" className="space-y-3">
           <p className="text-sm text-gray-300">
-            Use this URL inside TradingView alerts. It is only valid while the administrator token is active.
+            트레이딩뷰 알림의 웹훅 주소로 사용하세요. 관리자 토큰이 유효한 동안만 동작합니다.
           </p>
           {webhookInfo?.url ? (
             <div className="space-y-2">
@@ -766,19 +766,19 @@ const AdminApp: React.FC = () => {
                       : 'bg-gate-primary text-black hover:bg-green-500 transition'
                   }`}
                 >
-                  {webhookCopied ? 'Copied' : 'Copy URL'}
+                  {webhookCopied ? '복사됨' : 'URL 복사'}
                 </button>
               </div>
               {webhookInfo.secret && (
-                <div className="text-xs text-gray-500">Secret: {webhookInfo.secret}</div>
+                <div className="text-xs text-gray-500">비밀 키: {webhookInfo.secret}</div>
               )}
               {webhookInfo.updatedAt && (
-                <div className="text-xs text-gray-500">Last changed: {new Date(webhookInfo.updatedAt).toLocaleString()}</div>
+                <div className="text-xs text-gray-500">마지막 변경: {new Date(webhookInfo.updatedAt).toLocaleString()}</div>
               )}
             </div>
           ) : (
             <div className="text-xs text-gray-400 bg-black/30 border border-gray-700 rounded px-3 py-2">
-              A webhook has not been generated yet. Use the button below to create one.
+              아직 웹훅이 생성되지 않았습니다. 아래 버튼을 눌러 새 URL을 발급하세요.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -791,7 +791,7 @@ const AdminApp: React.FC = () => {
                   : 'bg-gate-primary text-black hover:bg-green-500 transition'
               }`}
             >
-              Generate new URL
+              새 URL 생성
             </button>
             <button
               onClick={() => fetchWebhookInfo()}
@@ -800,15 +800,15 @@ const AdminApp: React.FC = () => {
                 webhookLoading ? 'opacity-60 cursor-not-allowed' : ''
               }`}
             >
-              Reload status
+              상태 새로고침
             </button>
           </div>
           {webhookStatus && <div className="text-xs text-gray-300">{webhookStatus}</div>}
         </Card>
 
-        <Card title="Select strategies for webhook delivery" className="space-y-3">
+        <Card title="웹훅 전달 전략 선택" className="space-y-3">
           <p className="text-sm text-gray-300">
-            Only the strategies checked here will be forwarded through the webhook feed. Use this list to control who receives indicator signals.
+            체크된 전략만 웹훅으로 전달됩니다. 이 목록으로 지표 신호 수신 대상을 제어하세요.
           </p>
           <div className="flex flex-wrap gap-2 text-xs">
             {(overview?.strategies || []).map((strategy) => {
@@ -831,7 +831,7 @@ const AdminApp: React.FC = () => {
               );
             })}
             {(overview?.strategies || []).length === 0 && (
-              <div className="text-gray-500">No strategies are registered yet.</div>
+              <div className="text-gray-500">등록된 전략이 없습니다.</div>
             )}
           </div>
           <button
@@ -843,26 +843,49 @@ const AdminApp: React.FC = () => {
                 : 'bg-gate-primary text-black hover:bg-green-500 transition'
             }`}
           >
-            Save selection
+            선택 저장
           </button>
+        </Card>
+
+        <Card title="트레이딩뷰 웹훅 JSON 예시" className="space-y-3">
+          <p className="text-sm text-gray-300">
+            트레이딩뷰 알림 메시지에는 아래 형식의 JSON을 사용하면 서버가 지표, 심볼, 방향 정보를 정확히 파싱합니다.
+          </p>
+          <pre className="bg-black/40 border border-gray-700 rounded p-3 text-xs text-gray-200 overflow-x-auto">
+{`{
+  "indicator": "{{strategy.name}}",
+  "symbol": "{{ticker}}",
+  "action": "open",
+  "side": "long"
+}`}
+          </pre>
+          <div className="text-xs text-gray-400 space-y-1">
+            <p>direction 조합 예시:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>롱 진입: <code className="bg-gray-900 px-1 py-0.5 rounded border border-gray-700">"action": "open", "side": "long"</code></li>
+              <li>롱 청산: <code className="bg-gray-900 px-1 py-0.5 rounded border border-gray-700">"action": "close", "side": "long"</code></li>
+              <li>숏 진입: <code className="bg-gray-900 px-1 py-0.5 rounded border border-gray-700">"action": "open", "side": "short"</code></li>
+              <li>숏 청산: <code className="bg-gray-900 px-1 py-0.5 rounded border border-gray-700">"action": "close", "side": "short"</code></li>
+            </ul>
+          </div>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card title="Strategy catalog" className="space-y-4">
+        <Card title="전략 관리" className="space-y-4">
           <form onSubmit={addStrategy} className="flex flex-col md:flex-row gap-3">
             <input
               type="text"
               value={newStrategyName}
               onChange={(event) => setNewStrategyName(event.target.value)}
-              placeholder="Strategy name"
+              placeholder="전략 이름"
               className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded"
             />
             <input
               type="text"
               value={newStrategyDesc}
               onChange={(event) => setNewStrategyDesc(event.target.value)}
-              placeholder="Description (optional)"
+              placeholder="설명 (선택)"
               className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded"
             />
             <button
@@ -870,7 +893,7 @@ const AdminApp: React.FC = () => {
               disabled={addingStrategy}
               className="px-3 py-2 bg-gate-primary text-black rounded hover:bg-green-500 transition disabled:opacity-60"
             >
-              Add
+              추가
             </button>
           </form>
           <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -891,24 +914,24 @@ const AdminApp: React.FC = () => {
                         : 'bg-gray-800 border-gray-600 text-gray-300'
                     }`}
                   >
-                    {strategy.active !== false ? 'Active' : 'Inactive'}
+                    {strategy.active !== false ? '활성' : '비활성'}
                   </span>
                   <button
                     onClick={() => toggleStrategyActive(strategy)}
                     className="text-xs px-2 py-1 border border-gray-500 rounded hover:bg-gray-700"
                   >
-                    Toggle
+                    전환
                   </button>
                 </div>
               </div>
             ))}
             {(overview?.strategies || []).length === 0 && (
-              <div className="text-sm text-gray-500">No strategies found.</div>
+              <div className="text-sm text-gray-500">전략이 없습니다.</div>
             )}
           </div>
         </Card>
 
-        <Card title="Webhook signal monitor">
+        <Card title="웹훅 신호 모니터">
           <div className="flex items-center gap-3 mb-3">
             <select
               value={signalStrategy}
@@ -925,12 +948,12 @@ const AdminApp: React.FC = () => {
               onClick={() => fetchSignals(signalStrategy)}
               className="px-3 py-2 bg-gray-700 rounded hover:bg-gray-600"
             >
-              Reload
+              새로고침
             </button>
           </div>
           <div className="max-h-64 overflow-y-auto space-y-2 text-sm">
             {signals.length === 0 ? (
-              <div className="text-gray-500">No webhook signals yet.</div>
+              <div className="text-gray-500">아직 수신된 웹훅 신호가 없습니다.</div>
             ) : (
               signals.map((signal) => (
                 <div key={signal.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2">
@@ -939,7 +962,7 @@ const AdminApp: React.FC = () => {
                     <span>{signal.status}</span>
                   </div>
                   <div className="text-sm font-semibold">
-                    {strategyNameMap.get(signal.strategyId || '') || signal.strategyId || 'Unknown strategy'}
+                    {strategyNameMap.get(signal.strategyId || '') || signal.strategyId || '알 수 없는 전략'}
                   </div>
                   <div className="text-xs text-gray-500">
                     {signal.symbol || '---'} · {signal.action} {signal.side} · size={signal.size ?? '-'} · leverage={signal.leverage ?? '-'}
@@ -951,33 +974,33 @@ const AdminApp: React.FC = () => {
         </Card>
       </div>
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Pending UID requests" className="space-y-3">
+        <Card title="승인 대기 UID" className="space-y-3">
           {pendingUsers.length === 0 ? (
-            <div className="text-sm text-gray-500">No users waiting for approval.</div>
+            <div className="text-sm text-gray-500">승인을 기다리는 사용자가 없습니다.</div>
           ) : (
             pendingUsers.map((user) => (
               <div key={user.uid} className="bg-black/40 border border-gray-700 rounded px-3 py-3 space-y-2">
                 <div className="flex justify-between items-center">
                   <div>
                     <div className="font-semibold">UID: {user.uid}</div>
-                    <div className="text-xs text-gray-500">Requested strategies: {(user.requestedStrategies || []).join(', ') || '-'}</div>
+                    <div className="text-xs text-gray-500">요청한 전략: {(user.requestedStrategies || []).join(', ') || '-'}</div>
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => approveUser(user.uid)}
                       className="px-3 py-1 bg-gate-primary text-black rounded hover:bg-green-500 transition"
                     >
-                      Approve
+                      승인
                     </button>
                     <button
                       onClick={() => denyUser(user.uid)}
                       className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition"
                     >
-                      Deny
+                      거절
                     </button>
                   </div>
                 </div>
-                <div className="text-xs text-gray-400">Select strategies:</div>
+                <div className="text-xs text-gray-400">전략 선택:</div>
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(overview?.strategies || []).map((strategy) => (
                     <label
@@ -999,9 +1022,9 @@ const AdminApp: React.FC = () => {
         </Card>
 
         <div className="space-y-6">
-          <Card title="Approved users" className="space-y-2 max-h-64 overflow-y-auto">
+          <Card title="승인된 사용자" className="space-y-2 max-h-64 overflow-y-auto">
             {approvedUsers.length === 0 ? (
-              <div className="text-sm text-gray-500">No approved users yet.</div>
+              <div className="text-sm text-gray-500">승인된 사용자가 없습니다.</div>
             ) : (
               approvedUsers.map((user) => {
                 const isEditing = editingUser === user.uid;
@@ -1014,15 +1037,15 @@ const AdminApp: React.FC = () => {
                     }`}
                   >
                     <div className="font-semibold">{user.uid}</div>
-                    <div className="text-xs text-gray-400">Access key: {user.accessKey || '-'}</div>
-                    <div className="text-xs text-gray-500">Strategies: {(user.approvedStrategies || []).join(', ') || '-'}</div>
+                    <div className="text-xs text-gray-400">액세스 키: {user.accessKey || '-'}</div>
+                    <div className="text-xs text-gray-500">전략: {(user.approvedStrategies || []).join(', ') || '-'}</div>
                     {user.approvedAt && (
-                      <div className="text-xs text-gray-600">Approved: {new Date(user.approvedAt).toLocaleString()}</div>
+                      <div className="text-xs text-gray-600">승인 일시: {new Date(user.approvedAt).toLocaleString()}</div>
                     )}
 
                     {isEditing ? (
                       <div className="space-y-2">
-                        <div className="text-xs text-gray-400">Select strategies:</div>
+                        <div className="text-xs text-gray-400">전략 선택:</div>
                         <div className="flex flex-wrap gap-2 text-xs">
                           {(overview?.strategies || []).map((strategy) => (
                             <label
@@ -1046,13 +1069,13 @@ const AdminApp: React.FC = () => {
                               savingUser === user.uid ? 'opacity-60 cursor-not-allowed' : 'hover:bg-green-500 transition'
                             }`}
                           >
-                            Save
+                            저장
                           </button>
                           <button
                             onClick={cancelEditingUser}
                             className="px-3 py-1 border border-gray-600 rounded text-xs hover:bg-gray-800 transition"
                           >
-                            Cancel
+                            취소
                           </button>
                         </div>
                       </div>
@@ -1061,7 +1084,7 @@ const AdminApp: React.FC = () => {
                         onClick={() => startEditingUser(user)}
                         className="text-xs text-blue-400 hover:text-blue-300"
                       >
-                        Edit strategies
+                        전략 편집
                       </button>
                     )}
                   </div>
@@ -1070,14 +1093,14 @@ const AdminApp: React.FC = () => {
             )}
           </Card>
 
-          <Card title="Denied users" className="space-y-2 max-h-64 overflow-y-auto">
+          <Card title="거절된 사용자" className="space-y-2 max-h-64 overflow-y-auto">
             {deniedUsers.length === 0 ? (
-              <div className="text-sm text-gray-500">No denied users.</div>
+              <div className="text-sm text-gray-500">거절된 사용자가 없습니다.</div>
             ) : (
               deniedUsers.map((user) => (
                 <div key={user.uid} className="bg-black/40 border border-gray-700 rounded px-3 py-2">
                   <div className="font-semibold">{user.uid}</div>
-                  <div className="text-xs text-gray-500">Last status update: {user.updatedAt ? new Date(user.updatedAt).toLocaleString() : '-'}</div>
+                  <div className="text-xs text-gray-500">최종 상태 업데이트: {user.updatedAt ? new Date(user.updatedAt).toLocaleString() : '-'}</div>
                 </div>
               ))
             )}

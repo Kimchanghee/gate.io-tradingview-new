@@ -7,8 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT ?? 8080);
+const DEFAULT_ADMIN_TOKEN = 'Ckdgml9788@';
 const ADMIN_SECRETS = new Set(
-  [process.env.ADMIN_SECRET, 'Ckdgml9788@']
+  [process.env.ADMIN_SECRET, DEFAULT_ADMIN_TOKEN]
     .filter((token) => typeof token === 'string' && token.trim().length > 0)
     .map((token) => token.trim()),
 );
@@ -151,86 +152,6 @@ const buildWebhookUrl = (req, secret) => {
   return `${protocol}://${host}/webhook/${secret}`;
 };
 
-const seedData = () => {
-  const momentum = createStrategyRecord(
-    'momentum-alpha',
-    'Momentum Alpha',
-    'Tracks momentum breakouts on high-volume pairs.',
-    ['momentum alpha', 'alpha momentum'],
-  );
-  const meanRev = createStrategyRecord(
-    'mean-revert-x',
-    'Mean Revert X',
-    'Captures pullbacks within a trending market.',
-    ['mean reversion', 'revert x'],
-  );
-  const breakout = createStrategyRecord(
-    'breakout-scout',
-    'Breakout Scout',
-    'Identifies consolidation breaks with volume confirmation.',
-    ['breakout scout', 'scout breakout'],
-  );
-
-  webhook.routes = new Set([momentum.id, meanRev.id, breakout.id]);
-
-  const createdAt = nowIso();
-  const approvedUser = {
-    uid: 'demo-approved',
-    status: 'approved',
-    requestedStrategies: [momentum.id, breakout.id],
-    approvedStrategies: [momentum.id, breakout.id],
-    accessKey: 'demo-access-key',
-    autoTradingEnabled: true,
-    createdAt,
-    updatedAt: createdAt,
-    approvedAt: createdAt,
-  };
-  users.set(approvedUser.uid, approvedUser);
-  userSignals.set(approvedUser.uid, []);
-  userPositions.set(approvedUser.uid, [
-    {
-      contract: 'BTC_USDT',
-      size: 0.5,
-      side: 'long',
-      leverage: 10,
-      margin: 500,
-      pnl: 120,
-      pnlPercentage: 24,
-      entryPrice: 62000,
-      markPrice: 64400,
-    },
-    {
-      contract: 'ETH_USDT',
-      size: -2,
-      side: 'short',
-      leverage: 8,
-      margin: 800,
-      pnl: -65,
-      pnlPercentage: -8.1,
-      entryPrice: 3200,
-      markPrice: 3305,
-    },
-  ]);
-
-  const pendingUser = {
-    uid: 'demo-pending',
-    status: 'pending',
-    requestedStrategies: [meanRev.id],
-    approvedStrategies: [],
-    accessKey: null,
-    autoTradingEnabled: false,
-    createdAt,
-    updatedAt: createdAt,
-    approvedAt: null,
-  };
-  users.set(pendingUser.uid, pendingUser);
-  userSignals.set(pendingUser.uid, []);
-  userPositions.set(pendingUser.uid, []);
-
-  addLog('info', 'Seeded sample strategies and users.');
-};
-
-seedData();
 
 app.get('/api/strategies', (req, res) => {
   const list = Array.from(strategies.values()).map(cloneStrategyForClient);
