@@ -621,27 +621,33 @@ adminRouter.put('/webhook/routes', (req, res) => {
 
 adminRouter.post('/users/approve', (req, res) => {
   const { uid, strategies: selected } = req.body || {};
-  if (!uid || !Array.isArray(selected) || selected.length === 0) {
-    return res.status(400).json({ ok: false, message: 'UID and at least one strategy are required.' });
+  if (!uid) {
+    return res.status(400).json({ ok: false, message: 'UID is required.' });
   }
   const user = users.get(uid);
   if (!user) {
     return res.status(404).json({ ok: false, message: 'User not found.' });
   }
-  const approved = Array.from(new Set(selected.map(String).filter((id) => strategies.has(id))));
-  if (!approved.length) {
-    return res.status(400).json({ ok: false, message: 'No valid strategies selected.' });
+  let baseSelection = [];
+  if (Array.isArray(selected)) {
+    baseSelection = selected.map(String);
+  } else if (Array.isArray(user.requestedStrategies)) {
+    baseSelection = user.requestedStrategies.map(String);
   }
+  const approved = Array.from(new Set(baseSelection.filter((id) => strategies.has(id))));
   user.status = 'approved';
-  user.requestedStrategies = approved.slice();
+  user.requestedStrategies = baseSelection.slice();
   user.approvedStrategies = approved;
   user.accessKey = user.accessKey || randomId('access');
   user.autoTradingEnabled = user.autoTradingEnabled ?? false;
   user.updatedAt = nowIso();
   user.approvedAt = nowIso();
   users.set(uid, user);
-  addLog('info', `[ADMIN] Approved UID ${uid} with strategies: ${approved.join(', ')}.`);
-  res.json({ ok: true });
+  const logMessage = approved.length
+    ? `[ADMIN] Approved UID ${uid} with strategies: ${approved.join(', ')}.`
+    : `[ADMIN] Approved UID ${uid}.`;
+  addLog('info', logMessage);
+  res.json({ ok: true, approvedStrategies: approved });
 });
 
 adminRouter.post('/users/deny', (req, res) => {
