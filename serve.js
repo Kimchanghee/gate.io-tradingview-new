@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
+import { loadPersistentState, savePersistentState } from './services/persistence.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,124 @@ const webhook = {
   createdAt: null,
   updatedAt: null,
   routes: new Set(),
+};
+
+const persistedState = await loadPersistentState();
+
+if (persistedState?.strategies?.length) {
+  persistedState.strategies.forEach((entry) => {
+    if (!entry || !entry.id || !entry.name) {
+      return;
+    }
+    const aliases = Array.isArray(entry.aliases) && entry.aliases.length
+      ? entry.aliases
+      : [entry.name, entry.id];
+    const record = {
+      id: String(entry.id),
+      name: String(entry.name),
+      description: entry.description === undefined ? undefined : String(entry.description),
+      active: entry.active !== false,
+      createdAt: entry.createdAt ?? nowIso(),
+      updatedAt: entry.updatedAt ?? entry.createdAt ?? nowIso(),
+      aliases: new Set(
+        aliases
+          .map((alias) => normalizeIndicator(String(alias)))
+          .filter((alias) => alias.length > 0),
+      ),
+    };
+    strategies.set(record.id, record);
+    if (!adminSignals.has(record.id)) {
+      adminSignals.set(record.id, []);
+    }
+  });
+}
+
+if (persistedState?.users?.length) {
+  persistedState.users.forEach((entry) => {
+    if (!entry || !entry.uid) {
+      return;
+    }
+    const requestedList = Array.isArray(entry.requestedStrategies)
+      ? entry.requestedStrategies.map(String)
+      : [];
+    const approvedList = Array.isArray(entry.approvedStrategies)
+      ? entry.approvedStrategies.map(String)
+      : [];
+    const record = {
+      uid: String(entry.uid),
+      status: entry.status && typeof entry.status === 'string' ? entry.status : 'pending',
+      requestedStrategies: requestedList.filter((id) => strategies.has(id)),
+      approvedStrategies: approvedList.filter((id) => strategies.has(id)),
+      accessKey:
+        entry.accessKey === undefined || entry.accessKey === null
+          ? null
+          : String(entry.accessKey),
+      autoTradingEnabled: Boolean(entry.autoTradingEnabled),
+      createdAt: entry.createdAt ?? nowIso(),
+      updatedAt: entry.updatedAt ?? entry.createdAt ?? nowIso(),
+      approvedAt: entry.approvedAt ?? null,
+    };
+    users.set(record.uid, record);
+    if (!userSignals.has(record.uid)) {
+      userSignals.set(record.uid, Array.isArray(entry.signals) ? entry.signals : []);
+    }
+    if (!userPositions.has(record.uid)) {
+      userPositions.set(record.uid, Array.isArray(entry.positions) ? entry.positions : []);
+    }
+  });
+}
+
+if (persistedState?.webhook) {
+  webhook.url = persistedState.webhook.url ?? null;
+  webhook.secret = persistedState.webhook.secret ?? null;
+  webhook.createdAt = persistedState.webhook.createdAt ?? null;
+  webhook.updatedAt = persistedState.webhook.updatedAt ?? null;
+  webhook.routes = new Set(
+    Array.isArray(persistedState.webhook.routes)
+      ? persistedState.webhook.routes.map(String).filter((id) => strategies.has(id))
+      : [],
+  );
+}
+
+const buildPersistentSnapshot = () => ({
+  users: Array.from(users.values()).map((user) => ({
+    uid: user.uid,
+    status: user.status,
+    requestedStrategies: user.requestedStrategies.slice(),
+    approvedStrategies: user.approvedStrategies.slice(),
+    accessKey: user.accessKey,
+    autoTradingEnabled: Boolean(user.autoTradingEnabled),
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    approvedAt: user.approvedAt,
+  })),
+  strategies: Array.from(strategies.values()).map((strategy) => ({
+    id: strategy.id,
+    name: strategy.name,
+    description: strategy.description,
+    active: strategy.active,
+    createdAt: strategy.createdAt,
+    updatedAt: strategy.updatedAt,
+    aliases: Array.from(strategy.aliases ?? []),
+  })),
+  webhook:
+    webhook.url || webhook.secret || webhook.routes.size
+      ? {
+          url: webhook.url,
+          secret: webhook.secret,
+          createdAt: webhook.createdAt,
+          updatedAt: webhook.updatedAt,
+          routes: Array.from(webhook.routes).filter((id) => strategies.has(id)),
+        }
+      : null,
+});
+
+const persistState = async () => {
+  try {
+    await savePersistentState(buildPersistentSnapshot());
+  } catch (err) {
+    console.error('Failed to persist application state', err);
+  }
 };
 
 const addLog = (level, message) => {
@@ -211,7 +330,7 @@ app.get('/api/logs', (req, res) => {
   res.json({ logs });
 });
 
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { uid, strategies: requested } = req.body || {};
   if (!uid || typeof uid !== 'string') {
     return res.status(400).json({ ok: false, message: 'UID is required.' });
@@ -229,6 +348,7 @@ app.post('/api/register', (req, res) => {
     existing.updatedAt = nowIso();
     users.set(uid, existing);
     addLog('info', `[REGISTER] Updated registration request for UID ${uid}.`);
+    await persistState();
     return res.json({ ok: true, status: existing.status });
   }
 
@@ -248,6 +368,7 @@ app.post('/api/register', (req, res) => {
   userSignals.set(uid, []);
   userPositions.set(uid, []);
   addLog('info', `[REGISTER] Received new registration from UID ${uid}.`);
+  await persistState();
   return res.json({ ok: true, status: userRecord.status });
 });
 
@@ -378,7 +499,7 @@ app.get('/api/accounts/all', (req, res) => {
   res.json(sampleAccounts);
 });
 
-app.post('/api/trading/auto', (req, res) => {
+app.post('/api/trading/auto', async (req, res) => {
   const { uid, accessKey, enabled } = req.body || {};
   const user = verifyUserAccess(String(uid), String(accessKey));
   if (!user) {
@@ -388,6 +509,7 @@ app.post('/api/trading/auto', (req, res) => {
   user.updatedAt = nowIso();
   users.set(user.uid, user);
   addLog('info', `[AUTO] ${user.uid} set auto-trading ${user.autoTradingEnabled ? 'enabled' : 'disabled'}.`);
+  await persistState();
   return res.json({ ok: true, autoTradingEnabled: user.autoTradingEnabled });
 });
 
@@ -578,7 +700,7 @@ adminRouter.get('/webhook', (req, res) => {
   });
 });
 
-adminRouter.post('/webhook', (req, res) => {
+adminRouter.post('/webhook', async (req, res) => {
   if (webhook.url && webhook.secret) {
     return res.json({
       url: webhook.url,
@@ -598,6 +720,7 @@ adminRouter.post('/webhook', (req, res) => {
     webhook.routes = new Set(Array.from(strategies.keys()));
   }
   addLog('info', '[WEBHOOK] Generated new webhook credentials.');
+  await persistState();
   res.json({
     url: webhook.url,
     secret: webhook.secret,
@@ -608,7 +731,7 @@ adminRouter.post('/webhook', (req, res) => {
   });
 });
 
-adminRouter.put('/webhook/routes', (req, res) => {
+adminRouter.put('/webhook/routes', async (req, res) => {
   const { strategies: selected } = req.body || {};
   if (!Array.isArray(selected)) {
     return res.status(400).json({ ok: false, message: 'Invalid strategy list.' });
@@ -616,10 +739,11 @@ adminRouter.put('/webhook/routes', (req, res) => {
   webhook.routes = new Set(selected.filter((id) => strategies.has(String(id))).map(String));
   webhook.updatedAt = nowIso();
   addLog('info', `[WEBHOOK] Updated delivery routes: ${Array.from(webhook.routes).join(', ') || 'none'}.`);
+  await persistState();
   res.json({ ok: true, routes: Array.from(webhook.routes) });
 });
 
-adminRouter.post('/users/approve', (req, res) => {
+adminRouter.post('/users/approve', async (req, res) => {
   const { uid, strategies: selected } = req.body || {};
   if (!uid) {
     return res.status(400).json({ ok: false, message: 'UID is required.' });
@@ -647,10 +771,11 @@ adminRouter.post('/users/approve', (req, res) => {
     ? `[ADMIN] Approved UID ${uid} with strategies: ${approved.join(', ')}.`
     : `[ADMIN] Approved UID ${uid}.`;
   addLog('info', logMessage);
+  await persistState();
   res.json({ ok: true, approvedStrategies: approved });
 });
 
-adminRouter.post('/users/deny', (req, res) => {
+adminRouter.post('/users/deny', async (req, res) => {
   const { uid } = req.body || {};
   if (!uid) {
     return res.status(400).json({ ok: false, message: 'UID is required.' });
@@ -666,10 +791,30 @@ adminRouter.post('/users/deny', (req, res) => {
   user.updatedAt = nowIso();
   users.set(uid, user);
   addLog('info', `[ADMIN] Denied UID ${uid}.`);
+  await persistState();
   res.json({ ok: true });
 });
 
-adminRouter.patch('/users/:uid/strategies', (req, res) => {
+adminRouter.delete('/users/:uid', async (req, res) => {
+  const { uid } = req.params;
+  if (!uid) {
+    return res.status(400).json({ ok: false, message: 'UID is required.' });
+  }
+  const key = String(uid);
+  if (!users.has(key)) {
+    return res.status(404).json({ ok: false, message: 'User not found.' });
+  }
+  users.delete(key);
+  userSignals.delete(key);
+  userPositions.delete(key);
+  userConnections.delete(key);
+  signalRecipientActivity.delete(key);
+  addLog('info', `[ADMIN] Deleted UID ${key}.`);
+  await persistState();
+  res.json({ ok: true });
+});
+
+adminRouter.patch('/users/:uid/strategies', async (req, res) => {
   const { uid } = req.params;
   const { strategies: selected } = req.body || {};
   if (!Array.isArray(selected) || !selected.length) {
@@ -684,10 +829,11 @@ adminRouter.patch('/users/:uid/strategies', (req, res) => {
   user.updatedAt = nowIso();
   users.set(uid, user);
   addLog('info', `[ADMIN] Updated strategies for UID ${uid}: ${approved.join(', ')}.`);
+  await persistState();
   res.json({ ok: true });
 });
 
-adminRouter.patch('/strategies/:id', (req, res) => {
+adminRouter.patch('/strategies/:id', async (req, res) => {
   const { id } = req.params;
   const strategy = strategies.get(id);
   if (!strategy) {
@@ -699,10 +845,11 @@ adminRouter.patch('/strategies/:id', (req, res) => {
     strategies.set(id, strategy);
     addLog('info', `[ADMIN] Strategy ${id} set to ${strategy.active ? 'active' : 'inactive'}.`);
   }
+  await persistState();
   res.json({ ok: true });
 });
 
-adminRouter.post('/strategies', (req, res) => {
+adminRouter.post('/strategies', async (req, res) => {
   const { name, description } = req.body || {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ ok: false, message: 'Strategy name is required.' });
@@ -710,6 +857,7 @@ adminRouter.post('/strategies', (req, res) => {
   const id = randomId('strategy');
   const record = createStrategyRecord(id, name.trim(), description ? String(description) : undefined, [name]);
   addLog('info', `[ADMIN] Added strategy ${record.name} (${record.id}).`);
+  await persistState();
   res.json({ ok: true, strategy: cloneStrategyForClient(record) });
 });
 
