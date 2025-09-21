@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import { Buffer } from 'node:buffer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -626,6 +627,24 @@ const parseWebhookBody = (rawBody) => {
     return {};
   }
 
+  if (typeof rawBody === 'string' && rawBody.length === 0) {
+    return {};
+  }
+
+  if (ArrayBuffer.isView(rawBody)) {
+    const view = rawBody;
+    const buffer = Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+    return parseWebhookBody(buffer.toString('utf8'));
+  }
+
+  if (rawBody instanceof ArrayBuffer) {
+    return parseWebhookBody(Buffer.from(rawBody).toString('utf8'));
+  }
+
+  if (Buffer.isBuffer(rawBody)) {
+    return parseWebhookBody(rawBody.toString('utf8'));
+  }
+
   if (typeof rawBody === 'string') {
     const trimmed = rawBody.trim();
     if (!trimmed) {
@@ -682,7 +701,10 @@ const verifyWebhookSecret = (req, payload) => {
   const headerSecret = req.get('x-webhook-secret');
   const querySecretRaw = req.params.secret ?? req.query.secret;
   const querySecret = Array.isArray(querySecretRaw) ? querySecretRaw[0] : querySecretRaw;
-  const bodySecret = isPlainObject(payload) && typeof payload.secret === 'string' ? payload.secret : undefined;
+  const bodySecret =
+    isPlainObject(payload) && typeof payload.secret === 'string'
+      ? payload.secret
+      : undefined;
   if (!webhook.secret) return false;
   return [headerSecret, querySecret, bodySecret].some((value) => value && value === webhook.secret);
 };
