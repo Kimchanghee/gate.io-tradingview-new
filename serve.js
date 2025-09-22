@@ -609,8 +609,9 @@ app.post('/api/connect', async (req, res) => {
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
 
     const credentialError = isGateCredentialError(error);
+    const shouldRetryWithFallback = credentialError || status === 401 || status === 403;
 
-    if (credentialError) {
+    if (shouldRetryWithFallback) {
       const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
       try {
         const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
@@ -702,9 +703,11 @@ app.get('/api/accounts/all', async (req, res) => {
       ? error.message
       : '계정 정보를 불러오지 못했습니다.';
 
+    const credentialError = isGateCredentialError(error);
+
     patchUserConnectionForNetwork(uid, network, {
       lastError: message,
-      connected: status !== 401 && status !== 403 ? true : false,
+      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
     });
 
     console.error(`[Gate.io] Failed to refresh accounts for UID ${uid} (${network}):`, error?.message || error);
