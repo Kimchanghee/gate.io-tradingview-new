@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +32,38 @@ const GOOGLE_METADATA_TOKEN_URL =
 
 const gcsConfigured = Boolean(GCS_BUCKET);
 const fetchAvailable = typeof fetch === 'function';
+
+const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const STORAGE_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write';
+const TOKEN_SAFETY_MARGIN_MS = 60_000;
+
+const SERVICE_ACCOUNT_JSON_ENV_KEYS = [
+  'STATE_STORAGE_SERVICE_ACCOUNT',
+  'STATE_STORAGE_SERVICE_ACCOUNT_JSON',
+  'GOOGLE_SERVICE_ACCOUNT_JSON',
+  'GOOGLE_APPLICATION_CREDENTIALS_JSON',
+];
+
+const SERVICE_ACCOUNT_EMAIL_ENV_KEYS = [
+  'STATE_STORAGE_CLIENT_EMAIL',
+  'STATE_STORAGE_SERVICE_ACCOUNT_EMAIL',
+  'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+  'GOOGLE_CLIENT_EMAIL',
+];
+
+const SERVICE_ACCOUNT_KEY_ENV_KEYS = [
+  'STATE_STORAGE_PRIVATE_KEY',
+  'STATE_STORAGE_SERVICE_ACCOUNT_PRIVATE_KEY',
+  'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+  'GOOGLE_PRIVATE_KEY',
+];
+
+const SERVICE_ACCOUNT_FILE_ENV_KEYS = [
+  'STATE_STORAGE_CREDENTIALS_FILE',
+  'STATE_STORAGE_SERVICE_ACCOUNT_FILE',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_CREDENTIALS',
+];
 
 // 다국어 로깅 함수
 const logMultilingual = (level, english, korean, error) => {
@@ -118,19 +151,229 @@ const loadFromFileSystem = async () => {
 
 const metadataHeaders = { 'Metadata-Flavor': 'Google' };
 
-const fetchGoogleAccessToken = async () => {
+const readFirstEnvValue = (keys) => {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+};
+
+const normalisePrivateKey = (value) => {
+  if (!value) {
+    return '';
+  }
+  const trimmed = String(value).trim();
+  return trimmed.includes('-----BEGIN') ? trimmed.replace(/\\n/g, '\n') : trimmed;
+};
+
+const parseServiceAccountJson = (raw) => {
+  if (!raw) {
+    return null;
+  }
   try {
-    const response = await fetch(GOOGLE_METADATA_TOKEN_URL, { headers: metadataHeaders });
-    if (!response.ok) {
-      throw new Error(`Metadata server responded with ${response.status}`);
+    const parsed = JSON.parse(raw);
+    const email = parsed?.client_email;
+    const privateKey = parsed?.private_key;
+    if (email && privateKey) {
+      return {
+        clientEmail: String(email),
+        privateKey: normalisePrivateKey(String(privateKey)),
+      };
     }
-    const data = await response.json();
-    if (!data?.access_token) {
-      throw new Error('Metadata server response missing access_token');
+  } catch (error) {
+    // Ignore parse errors here; caller will log a warning.
+  }
+  return null;
+};
+
+let serviceAccountCredentialsLoaded = false;
+let cachedServiceAccountCredentials = null;
+
+const loadServiceAccountCredentials = async () => {
+  if (serviceAccountCredentialsLoaded) {
+    return cachedServiceAccountCredentials;
+  }
+  serviceAccountCredentialsLoaded = true;
+
+  const rawJson = readFirstEnvValue(SERVICE_ACCOUNT_JSON_ENV_KEYS);
+  if (rawJson) {
+    const parsed = parseServiceAccountJson(rawJson);
+    if (parsed) {
+      cachedServiceAccountCredentials = parsed;
+      return cachedServiceAccountCredentials;
     }
-    return data.access_token;
-  } catch (err) {
-    throw new Error(`Failed to obtain Google Cloud access token: ${err?.message || err}`);
+    logMultilingual(
+      'warn',
+      'Failed to parse Cloud Storage service account JSON from environment variables. Ignoring the value.',
+      '환경 변수에 설정된 Cloud Storage 서비스 계정 JSON을 해석하지 못했습니다. 해당 값을 무시합니다.',
+    );
+  }
+
+  const clientEmail = readFirstEnvValue(SERVICE_ACCOUNT_EMAIL_ENV_KEYS);
+  const privateKeyRaw = readFirstEnvValue(SERVICE_ACCOUNT_KEY_ENV_KEYS);
+  const privateKey = normalisePrivateKey(privateKeyRaw);
+
+  if (clientEmail && privateKey) {
+    cachedServiceAccountCredentials = { clientEmail, privateKey };
+    return cachedServiceAccountCredentials;
+  }
+
+  if ((clientEmail && !privateKeyRaw) || (!clientEmail && privateKeyRaw)) {
+    logMultilingual(
+      'warn',
+      'Incomplete Cloud Storage service account credentials provided. Both email and private key must be set.',
+      'Cloud Storage 서비스 계정 자격 증명이 불완전합니다. 이메일과 개인 키를 모두 설정해야 합니다.',
+    );
+  }
+
+  const credentialsFile = readFirstEnvValue(SERVICE_ACCOUNT_FILE_ENV_KEYS);
+  if (credentialsFile) {
+    try {
+      const fileContents = await fs.readFile(credentialsFile, 'utf8');
+      const parsed = parseServiceAccountJson(fileContents);
+      if (parsed) {
+        cachedServiceAccountCredentials = parsed;
+        return cachedServiceAccountCredentials;
+      }
+      logMultilingual(
+        'warn',
+        `The service account file "${credentialsFile}" does not contain client_email/private_key fields.`,
+        `서비스 계정 파일 "${credentialsFile}"에 client_email 또는 private_key 값이 없습니다.`,
+      );
+    } catch (error) {
+      logMultilingual(
+        'error',
+        `Failed to read service account credentials from "${credentialsFile}" for Cloud Storage persistence.`,
+        `Cloud Storage 저장을 위해 "${credentialsFile}" 파일에서 서비스 계정 자격 증명을 읽지 못했습니다.`,
+        error,
+      );
+    }
+  }
+
+  return cachedServiceAccountCredentials;
+};
+
+const base64UrlEncode = (value) =>
+  Buffer.from(value)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+const createJwtAssertion = (clientEmail, privateKey) => {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    iss: clientEmail,
+    scope: STORAGE_SCOPE,
+    aud: GOOGLE_OAUTH_TOKEN_URL,
+    exp: now + 3600,
+    iat: now,
+  };
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(`${encodedHeader}.${encodedPayload}`);
+  const signature = signer.sign(privateKey);
+  const encodedSignature = base64UrlEncode(signature);
+  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
+};
+
+const createTokenCache = () => ({ token: null, expiresAt: 0 });
+
+const serviceAccountTokenCache = createTokenCache();
+const metadataTokenCache = createTokenCache();
+
+const getCachedToken = (cache) => (cache.token && cache.expiresAt > Date.now() ? cache.token : null);
+
+const updateTokenCache = (cache, token, expiresInMs) => {
+  const lifetime = Number.isFinite(expiresInMs) ? expiresInMs : 0;
+  const safeExpiry = Date.now() + Math.max(0, lifetime - TOKEN_SAFETY_MARGIN_MS);
+  cache.token = token;
+  cache.expiresAt = safeExpiry;
+};
+
+const requestServiceAccountAccessToken = async (credentials) => {
+  const cachedToken = getCachedToken(serviceAccountTokenCache);
+  if (cachedToken) {
+    return cachedToken;
+  }
+
+  const assertion = createJwtAssertion(credentials.clientEmail, credentials.privateKey);
+  const params = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion,
+  });
+
+  const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Service account token request failed with status ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  if (!data?.access_token) {
+    throw new Error('Service account token response missing access_token');
+  }
+
+  const expiresInMs = Number(data.expires_in || 0) * 1000;
+  updateTokenCache(serviceAccountTokenCache, data.access_token, expiresInMs);
+  return serviceAccountTokenCache.token;
+};
+
+const fetchMetadataServerAccessToken = async () => {
+  const cachedToken = getCachedToken(metadataTokenCache);
+  if (cachedToken) {
+    return cachedToken;
+  }
+
+  const response = await fetch(GOOGLE_METADATA_TOKEN_URL, { headers: metadataHeaders });
+  if (!response.ok) {
+    throw new Error(`Metadata server responded with ${response.status}`);
+  }
+  const data = await response.json();
+  if (!data?.access_token) {
+    throw new Error('Metadata server response missing access_token');
+  }
+  const expiresInMs = Number(data.expires_in || 0) * 1000;
+  updateTokenCache(metadataTokenCache, data.access_token, expiresInMs);
+  return metadataTokenCache.token;
+};
+
+const fetchGoogleAccessToken = async () => {
+  let serviceAccountError = null;
+  const credentials = await loadServiceAccountCredentials();
+  if (credentials) {
+    try {
+      return await requestServiceAccountAccessToken(credentials);
+    } catch (error) {
+      serviceAccountError = error;
+      logMultilingual(
+        'warn',
+        'Failed to obtain Cloud Storage access token using service account credentials. Falling back to the metadata server.',
+        '서비스 계정 자격 증명으로 Cloud Storage 액세스 토큰을 받지 못해 메타데이터 서버를 사용합니다.',
+        error,
+      );
+    }
+  }
+
+  try {
+    return await fetchMetadataServerAccessToken();
+  } catch (metadataError) {
+    if (serviceAccountError) {
+      throw new Error(
+        `Service account token request failed (${serviceAccountError.message}); metadata server request failed (${metadataError.message})`,
+      );
+    }
+    throw new Error(`Failed to obtain Google Cloud access token: ${metadataError.message}`);
   }
 };
 
