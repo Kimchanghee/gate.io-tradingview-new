@@ -129,20 +129,16 @@ const canonicaliseJson = (value) => {
   return value;
 };
 
-const buildTimestamp = () => {
-  const seconds = Date.now() / 1000;
-  const fixed = seconds.toFixed(6);
-  const trimmed = fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-  const normalised = trimmed.endsWith('.') ? trimmed.slice(0, -1) : trimmed;
-  return normalised || seconds.toString();
-};
+const buildTimestamp = () => Math.floor(Date.now() / 1000).toString();
 
 const serialiseBody = (body) => {
   if (body === undefined || body === null) {
     return { payload: '', contentType: null };
   }
   if (typeof body === 'string') {
-    return { payload: body, contentType: null };
+    const trimmed = body.trim();
+    const contentType = trimmed.startsWith('{') || trimmed.startsWith('[') ? 'application/json' : null;
+    return { payload: body, contentType };
   }
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(body)) {
     return { payload: body.toString('utf8'), contentType: null };
