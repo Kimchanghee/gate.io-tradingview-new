@@ -11,6 +11,8 @@ export const ja = {
   apiSecret: "APIシークレット",
   currentNetwork: "現在のネットワーク",
   networkHint: "上部ヘッダーでネットワークを変更できます",
+  networkAutoSwitchedTestnet: "入力されたAPIキーがテストネット用と判定されたため、テストネットへ自動で切り替えました",
+  networkAutoSwitchedMainnet: "入力されたAPIキーがメインネット用と判定されたため、メインネットへ自動で切り替えました",
   connect: "API接続",
   connecting: "接続中...",
   disconnect: "接続解除",
