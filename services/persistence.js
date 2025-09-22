@@ -31,50 +31,26 @@ const GOOGLE_METADATA_TOKEN_URL =
 
 const gcsConfigured = Boolean(GCS_BUCKET);
 const fetchAvailable = typeof fetch === 'function';
+const gcsEnabled = gcsConfigured && fetchAvailable;
 
-const logMultilingual = (level, english, korean, error) => {
-  const logger = console[level] || console.log;
-  const prefix = '[persistence]';
-  if (error) {
-    logger.call(console, `${prefix} ${english}`, error);
-    logger.call(console, `${prefix} ${korean}`);
-    return;
+const describeStorageTarget = () => {
+  if (!gcsEnabled) {
+    if (!GCS_BUCKET) {
+      return (
+        'Falling back to local data/state.json because no Cloud Storage bucket is configured. ' +
+        'Set the STATE_STORAGE_BUCKET environment variable to persist admin data across deployments.'
+      );
+    }
+    return (
+      'Falling back to local data/state.json because the global fetch API is unavailable. ' +
+      'Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.'
+    );
   }
-  logger.call(console, `${prefix} ${english}`);
-  logger.call(console, `${prefix} ${korean}`);
-};
-
-const determineStorageStatus = () => {
-  if (!gcsConfigured) {
-    return {
-      enabled: false,
-      english:
-        'Falling back to local data/state.json because no Cloud Storage bucket is configured. Set the STATE_STORAGE_BUCKET environment variable to persist admin data across deployments.',
-      korean:
-        'STATE_STORAGE_BUCKET 환경 변수가 비어 있어 data/state.json 파일을 사용합니다. 값을 지정하면 관리자 데이터가 배포 후에도 유지됩니다.',
-    };
-  }
-
-  if (!fetchAvailable) {
-    return {
-      enabled: false,
-      english:
-        'Falling back to local data/state.json because the global fetch API is unavailable. Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.',
-      korean:
-        '글로벌 fetch API를 사용할 수 없어 data/state.json 파일에 저장합니다. Node 18+ 환경이거나 fetch를 제공해야 Cloud Storage 저장이 활성화됩니다.',
-    };
-  }
-
   const objectPath = GCS_OBJECT || 'state.json';
-  return {
-    enabled: true,
-    english: `Persisting admin data to Cloud Storage bucket "${GCS_BUCKET}" as "${objectPath}".`,
-    korean: `관리자 데이터가 Cloud Storage 버킷 "${GCS_BUCKET}"의 "${objectPath}" 객체에 저장됩니다.`,
-  };
+  return `Persisting admin data to Cloud Storage bucket "${GCS_BUCKET}" as "${objectPath}".`;
 };
 
-const { enabled: gcsEnabled, english: storageEnglish, korean: storageKorean } = determineStorageStatus();
-logMultilingual('info', storageEnglish, storageKorean);
+console.info(`[persistence] ${describeStorageTarget()}`);
 
 const EMPTY_STATE = {
   users: [],
@@ -171,16 +147,10 @@ const loadFromGoogleCloudStorage = async () => {
     const text = await response.text();
     return normalizeState(JSON.parse(text));
   } catch (err) {
-    logMultilingual(
-      'error',
-      'Failed to load persisted state from Google Cloud Storage. Confirm the service account has storage.objects.get access and that the metadata server is reachable.',
-      'Google Cloud Storage에서 상태를 불러오지 못했습니다. 서비스 계정에 storage.objects.get 권한이 있는지와 메타데이터 서버에 접근 가능한지 확인하세요.',
+    console.error(
+      'Failed to load persisted state from Google Cloud Storage. ' +
+        'Confirm the service account has storage.objects.get access and that the metadata server is reachable.',
       err,
-    );
-    logMultilingual(
-      'warn',
-      'Falling back to local data/state.json after Cloud Storage error.',
-      'Cloud Storage 오류로 인해 data/state.json 파일에 저장합니다.',
     );
     return null;
   }
@@ -232,16 +202,10 @@ export const savePersistentState = async (state) => {
         await saveToGoogleCloudStorage(payload);
         return;
       } catch (err) {
-        logMultilingual(
-          'error',
-          'Failed to write persisted state to Google Cloud Storage. Ensure the service account has storage.objects.create access and the bucket exists.',
-          'Google Cloud Storage에 상태를 기록하지 못했습니다. 서비스 계정에 storage.objects.create 권한이 있는지와 대상 버킷이 존재하는지 확인하세요.',
+        console.error(
+          'Failed to write persisted state to Google Cloud Storage. ' +
+            'Ensure the service account has storage.objects.create access and the bucket exists.',
           err,
-        );
-        logMultilingual(
-          'warn',
-          'Falling back to local data/state.json after Cloud Storage error.',
-          'Cloud Storage 오류로 인해 data/state.json 파일에 저장합니다.',
         );
       }
     }
