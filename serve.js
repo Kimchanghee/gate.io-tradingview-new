@@ -603,36 +603,16 @@ app.post('/api/connect', async (req, res) => {
       network: networkKey,
     });
   } catch (error) {
-    const status = error instanceof GateApiError && typeof error.status === 'number' ? error.status : 502;
+    const statusCode =
+      error instanceof GateApiError && typeof error.status === 'number'
+        ? error.status
+        : typeof error?.status === 'number'
+        ? error.status
+        : null;
+    const status = statusCode ?? 502;
     const message = error instanceof GateApiError
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
-
-    const shouldRetryWithFallback = status === 401 || status === 403;
-
-    if (shouldRetryWithFallback) {
-      const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
-      try {
-        const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
-          logSuffix: ' (auto-detected network)',
-        });
-
-        return res.json({
-          ok: true,
-          connected: true,
-          accounts: fallbackSnapshot.accounts,
-          positions: fallbackSnapshot.positions,
-          autoTradingEnabled: Boolean(user.autoTradingEnabled),
-          network: fallbackNetworkKey,
-          networkMismatch: true,
-        });
-      } catch (fallbackError) {
-        console.error(
-          `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
-          fallbackError?.message || fallbackError,
-        );
-      }
-    }
 
     patchUserConnectionForNetwork(uid, networkKey, {
       connected: false,
@@ -643,35 +623,34 @@ app.post('/api/connect', async (req, res) => {
     });
 
     const credentialError = isGateCredentialError(error);
-    const isClientError =
-      error instanceof GateApiError &&
-      typeof error.status === 'number' &&
-      error.status >= 400 &&
-      error.status < 500 &&
-      error.status !== 429;
-    const shouldRetryWithFallback = credentialError || isClientError;
+    const shouldRetryWithFallback =
+      credentialError ||
+      (statusCode !== null && statusCode >= 400 && statusCode < 500) ||
+      statusCode === null;
 
     if (shouldRetryWithFallback) {
       const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
-      try {
-        const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
-          logSuffix: ' (auto-detected network)',
-        });
+      if (fallbackNetworkKey !== networkKey) {
+        try {
+          const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
+            logSuffix: ' (auto-detected network)',
+          });
 
-        return res.json({
-          ok: true,
-          connected: true,
-          accounts: fallbackSnapshot.accounts,
-          positions: fallbackSnapshot.positions,
-          autoTradingEnabled: Boolean(user.autoTradingEnabled),
-          network: fallbackNetworkKey,
-          networkMismatch: true,
-        });
-      } catch (fallbackError) {
-        console.error(
-          `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
-          fallbackError?.message || fallbackError,
-        );
+          return res.json({
+            ok: true,
+            connected: true,
+            accounts: fallbackSnapshot.accounts,
+            positions: fallbackSnapshot.positions,
+            autoTradingEnabled: Boolean(user.autoTradingEnabled),
+            network: fallbackNetworkKey,
+            networkMismatch: true,
+          });
+        } catch (fallbackError) {
+          console.error(
+            `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
+            fallbackError?.message || fallbackError,
+          );
+        }
       }
     }
 
