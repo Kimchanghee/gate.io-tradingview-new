@@ -603,13 +603,27 @@ app.post('/api/connect', async (req, res) => {
       network: networkKey,
     });
   } catch (error) {
-    const status = error instanceof GateApiError && error.status ? error.status : 502;
+    const status = error instanceof GateApiError && typeof error.status === 'number' ? error.status : 502;
     const message = error instanceof GateApiError
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
 
+    patchUserConnectionForNetwork(uid, networkKey, {
+      connected: false,
+      lastConnectedAt: nowIso(),
+      apiKey: String(apiKey),
+      apiSecret: String(apiSecret),
+      lastError: message,
+    });
+
     const credentialError = isGateCredentialError(error);
-    const shouldRetryWithFallback = credentialError || status === 401 || status === 403;
+    const isClientError =
+      error instanceof GateApiError &&
+      typeof error.status === 'number' &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 429;
+    const shouldRetryWithFallback = credentialError || isClientError;
 
     if (shouldRetryWithFallback) {
       const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
@@ -634,14 +648,6 @@ app.post('/api/connect', async (req, res) => {
         );
       }
     }
-
-    patchUserConnectionForNetwork(uid, networkKey, {
-      connected: false,
-      lastConnectedAt: nowIso(),
-      apiKey: String(apiKey),
-      apiSecret: String(apiSecret),
-      lastError: message,
-    });
 
     console.error(`[Gate.io] Failed to connect UID ${uid} (${networkKey}):`, error?.message || error);
 

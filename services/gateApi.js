@@ -26,9 +26,30 @@ const GATE_AUTH_ERROR_PATTERNS = [
   'invalid signature',
   'signature mismatch',
   'invalid sign',
+  'invalid credential',
+  'invalid credentials',
   'api key not found',
+  'api key does not exist',
+  'api key not exist',
   'key does not exist',
+  'no such api key',
+  'no such key',
+  'account_not_exists',
+  'account not exists',
+  'account does not exist',
+  'account not found',
+  'subaccount not found',
+  'sub-account not found',
+  'user does not exist',
 ];
+
+const includesCredentialPattern = (text) => {
+  if (!text) {
+    return false;
+  }
+  const normalised = text.toLowerCase();
+  return GATE_AUTH_ERROR_PATTERNS.some((pattern) => normalised.includes(pattern));
+};
 
 export const isGateCredentialError = (error) => {
   if (!(error instanceof GateApiError)) {
@@ -40,9 +61,14 @@ export const isGateCredentialError = (error) => {
     return true;
   }
 
-  if (status === 400) {
-    const message = String(error.message || '').toLowerCase();
-    return GATE_AUTH_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+  const message = String(error.message || '');
+  const body = typeof error.body === 'string' ? error.body : '';
+  if (includesCredentialPattern(`${message} ${body}`)) {
+    return true;
+  }
+
+  if (status === 400 || status === 404) {
+    return includesCredentialPattern(message) || includesCredentialPattern(body);
   }
 
   return false;
