@@ -19,6 +19,75 @@ export class GateApiError extends Error {
   }
 }
 
+const GATE_AUTH_ERROR_PATTERNS = [
+  'invalid key',
+  'invalid api key',
+  'invalid apikey',
+  'invalid api-key',
+  'invalid secret',
+  'invalid signature',
+  'signature mismatch',
+  'invalid sign',
+  'invalid credential',
+  'invalid credentials',
+  'invalid access key',
+  'api key not found',
+  'api key does not exist',
+  'api key not exist',
+  'api key not exists',
+  'api_key not exist',
+  'api_key not exists',
+  'apikey not exist',
+  'apikey not exists',
+  'key not exist',
+  'key not exists',
+  'key not found',
+  'access key not exist',
+  'access key not exists',
+  'access key not found',
+  'key does not exist',
+  'no such api key',
+  'no such key',
+  'account_not_exists',
+  'account not exists',
+  'account does not exist',
+  'account not found',
+  'subaccount not found',
+  'sub-account not found',
+  'user does not exist',
+];
+
+const includesCredentialPattern = (text) => {
+  if (!text) {
+    return false;
+  }
+  const normalised = text.toLowerCase();
+  return GATE_AUTH_ERROR_PATTERNS.some((pattern) => normalised.includes(pattern));
+};
+
+export const isGateCredentialError = (error) => {
+  if (!(error instanceof GateApiError)) {
+    return false;
+  }
+
+  const status = typeof error.status === 'number' ? error.status : null;
+  if (status === 401 || status === 403) {
+    return true;
+  }
+
+  const message = String(error.message || '');
+  const body = typeof error.body === 'string' ? error.body : '';
+  if (includesCredentialPattern(`${message} ${body}`)) {
+    return true;
+  }
+
+  if (status === 400 || status === 404) {
+    return includesCredentialPattern(message) || includesCredentialPattern(body);
+  }
+
+  return false;
+};
+
 const safeNumber = (value) => {
   if (value === null || value === undefined) {
     return 0;
@@ -439,7 +508,7 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
   let authenticationFailure = false;
 
   const handleError = (label, error) => {
-    if (error instanceof GateApiError && (error.status === 401 || error.status === 403)) {
+    if (isGateCredentialError(error)) {
       authenticationFailure = true;
     }
     console.error(`[Gate.io] Failed to load ${label}:`, error?.message || error);
@@ -554,7 +623,7 @@ export const fetchGatePositions = async ({ apiKey, apiSecret, isTestnet }) => {
       if (error instanceof GateApiError && error.status === 404) {
         continue;
       }
-      if (error instanceof GateApiError && (error.status === 401 || error.status === 403)) {
+      if (isGateCredentialError(error)) {
         authenticationFailure = true;
       }
       console.error(`[Gate.io] Failed to load ${settle.toUpperCase()} futures positions:`, error?.message || error);

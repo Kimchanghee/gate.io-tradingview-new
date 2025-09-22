@@ -73,6 +73,7 @@ const ApiSettingsCard: React.FC = () => {
   const autoTradingEnabled = state.user.autoTradingEnabled;
 
   const handleConnect = async () => {
+    const requestedNetwork = state.network;
     if (!uidReady) {
       setConnectionStatus(translate('uidAuthRequired'));
       return;
@@ -145,8 +146,29 @@ const ApiSettingsCard: React.FC = () => {
         return;
       }
 
+      const serverNetworkRaw = typeof result.network === 'string' ? result.network.toLowerCase() : '';
+      const serverNetwork =
+        serverNetworkRaw === Network.Testnet
+          ? Network.Testnet
+          : serverNetworkRaw === Network.Mainnet
+          ? Network.Mainnet
+          : null;
+
+      if (serverNetwork && serverNetwork !== requestedNetwork) {
+        dispatch({ type: 'SET_NETWORK', payload: serverNetwork });
+      }
+
       setIsConnected(true);
-      setConnectionStatus(result?.message || translate('connectionSuccess'));
+      let statusMessage = result?.message || translate('connectionSuccess');
+
+      if (serverNetwork && serverNetwork !== requestedNetwork) {
+        statusMessage =
+          serverNetwork === Network.Testnet
+            ? translate('networkAutoSwitchedTestnet')
+            : translate('networkAutoSwitchedMainnet');
+      }
+
+      setConnectionStatus(statusMessage);
       setAccounts(result.accounts ?? null);
       if (typeof result.autoTradingEnabled === 'boolean') {
         dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
