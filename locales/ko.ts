@@ -11,6 +11,8 @@ export const ko = {
   apiSecret: "API Secret",
   currentNetwork: "현재 네트워크",
   networkHint: "상단 헤더에서 네트워크를 변경할 수 있습니다",
+  networkAutoSwitchedTestnet: "입력하신 API 키가 테스트넷용으로 확인되어 테스트넷으로 전환했습니다",
+  networkAutoSwitchedMainnet: "입력하신 API 키가 메인넷용으로 확인되어 메인넷으로 전환했습니다",
   connect: "API 연결",
   connecting: "연결 중...",
   disconnect: "연결 해제",

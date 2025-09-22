@@ -561,14 +561,14 @@ app.post('/api/connect', async (req, res) => {
     typeof isTestnet === 'boolean' ? isTestnet : network,
   );
 
-  try {
+  const connectForNetwork = async (targetNetwork, { logSuffix = '' } = {}) => {
     const snapshot = await fetchGateSnapshot({
       apiKey: String(apiKey),
       apiSecret: String(apiSecret),
-      isTestnet: networkKey === NETWORK_TESTNET,
+      isTestnet: targetNetwork === NETWORK_TESTNET,
     });
 
-    patchUserConnectionForNetwork(uid, networkKey, {
+    patchUserConnectionForNetwork(uid, targetNetwork, {
       connected: true,
       lastConnectedAt: nowIso(),
       apiKey: String(apiKey),
@@ -577,9 +577,15 @@ app.post('/api/connect', async (req, res) => {
       lastError: null,
     });
 
-    setPositionsForNetwork(uid, networkKey, snapshot.positions);
+    setPositionsForNetwork(uid, targetNetwork, snapshot.positions);
 
-    addLog('info', `[API] Connected user ${uid} (${networkKey}).`);
+    addLog('info', `[API] Connected user ${uid} (${targetNetwork})${logSuffix}`);
+
+    return snapshot;
+  };
+
+  try {
+    const snapshot = await connectForNetwork(networkKey);
 
     return res.json({
       ok: true,
@@ -587,12 +593,39 @@ app.post('/api/connect', async (req, res) => {
       accounts: snapshot.accounts,
       positions: snapshot.positions,
       autoTradingEnabled: Boolean(user.autoTradingEnabled),
+      network: networkKey,
     });
   } catch (error) {
     const status = error instanceof GateApiError && error.status ? error.status : 502;
     const message = error instanceof GateApiError
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
+
+    const shouldRetryWithFallback = status === 401 || status === 403;
+
+    if (shouldRetryWithFallback) {
+      const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
+      try {
+        const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
+          logSuffix: ' (auto-detected network)',
+        });
+
+        return res.json({
+          ok: true,
+          connected: true,
+          accounts: fallbackSnapshot.accounts,
+          positions: fallbackSnapshot.positions,
+          autoTradingEnabled: Boolean(user.autoTradingEnabled),
+          network: fallbackNetworkKey,
+          networkMismatch: true,
+        });
+      } catch (fallbackError) {
+        console.error(
+          `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
+          fallbackError?.message || fallbackError,
+        );
+      }
+    }
 
     patchUserConnectionForNetwork(uid, networkKey, {
       connected: false,
