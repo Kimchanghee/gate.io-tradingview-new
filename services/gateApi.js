@@ -89,7 +89,15 @@ const requestGateApi = async ({ apiKey, apiSecret, method, path, query, body, is
   const queryString = buildQueryString(query);
   const payload = body ? JSON.stringify(body) : '';
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signaturePayload = [method.toUpperCase(), requestPath, queryString, payload].join('\n');
+  const normalisedQuery = queryString || '';
+  const normalisedPayload = payload || '';
+  const signaturePayload = [
+    method.toUpperCase(),
+    requestPath,
+    normalisedQuery,
+    normalisedPayload,
+    timestamp,
+  ].join('\n');
   const signature = buildSignature(apiSecret, signaturePayload);
   const url = `${baseUrl}${requestPath}${queryString ? `?${queryString}` : ''}`;
 
@@ -97,6 +105,7 @@ const requestGateApi = async ({ apiKey, apiSecret, method, path, query, body, is
     KEY: apiKey,
     Timestamp: timestamp,
     SIGN: signature,
+    Accept: 'application/json',
   };
   if (payload) {
     headers['Content-Type'] = 'application/json';
