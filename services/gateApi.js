@@ -61,6 +61,28 @@ const normaliseCurrency = (value) => String(value || '').toUpperCase();
 
 const getBaseUrl = (isTestnet) => (isTestnet ? DEFAULT_TESTNET_BASE : DEFAULT_MAINNET_BASE);
 
+const resolveIsTestnet = (value) => {
+  if (value === true) {
+    return true;
+  }
+  if (value === false) {
+    return false;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalised = value.trim().toLowerCase();
+    if (normalised === 'testnet' || normalised === 'true' || normalised === '1') {
+      return true;
+    }
+    if (normalised === 'mainnet' || normalised === 'false' || normalised === '0') {
+      return false;
+    }
+  }
+  return false;
+};
+
 const normalisePath = (value) => {
   const stringValue = String(value || '');
   if (!stringValue) {
@@ -70,10 +92,41 @@ const normalisePath = (value) => {
 };
 
 const normaliseCredential = (value) => {
-  if (typeof value !== 'string') {
+  if (value === undefined || value === null) {
     return '';
   }
-  return value.trim();
+  return String(value).trim();
+};
+
+const ensureCredentials = (apiKey, apiSecret) => {
+  const key = normaliseCredential(apiKey);
+  const secret = normaliseCredential(apiSecret);
+  if (!key || !secret) {
+    throw new GateApiError('Gate.io API 키와 시크릿을 입력해주세요.', { status: 401 });
+  }
+  return { key, secret };
+};
+
+const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+
+const canonicaliseJson = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(canonicaliseJson);
+  }
+  if (isPlainObject(value)) {
+    const sorted = {};
+    Object.keys(value)
+      .sort()
+      .forEach((key) => {
+        const entry = value[key];
+        if (entry === undefined) {
+          return;
+        }
+        sorted[key] = canonicaliseJson(entry);
+      });
+    return sorted;
+  }
+  return value;
 };
 
 const buildTimestamp = () => {
@@ -86,16 +139,36 @@ const buildTimestamp = () => {
 
 const serialiseBody = (body) => {
   if (body === undefined || body === null) {
-    return '';
+    return { payload: '', contentType: null };
   }
   if (typeof body === 'string') {
-    return body;
+    return { payload: body, contentType: null };
   }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(body)) {
+    return { payload: body.toString('utf8'), contentType: null };
+  }
+  if (body instanceof URLSearchParams) {
+    return {
+      payload: body.toString(),
+      contentType: 'application/x-www-form-urlencoded;charset=UTF-8',
+    };
+  }
+
+  let serialised;
+  let contentType = 'application/json';
+  const target = isPlainObject(body) || Array.isArray(body) ? canonicaliseJson(body) : body;
+
   try {
-    return JSON.stringify(body);
+    serialised = JSON.stringify(target);
   } catch {
-    return '';
+    return { payload: '', contentType: null };
   }
+
+  if (serialised === undefined) {
+    return { payload: '', contentType: null };
+  }
+
+  return { payload: serialised, contentType };
 };
 
 const buildSignature = (secret, payload) => crypto.createHmac('sha512', secret).update(payload).digest('hex');
@@ -124,40 +197,47 @@ const buildQueryString = (query) => {
 };
 
 const requestGateApi = async ({ apiKey, apiSecret, method, path, query, body, isTestnet }) => {
-  const baseUrl = getBaseUrl(isTestnet);
+  const { key, secret } = ensureCredentials(apiKey, apiSecret);
+  const baseUrl = getBaseUrl(resolveIsTestnet(isTestnet));
   const requestPath = `${API_PREFIX}${normalisePath(path)}`;
   const queryString = buildQueryString(query);
-  const payload = serialiseBody(body);
+  const { payload, contentType } = serialiseBody(body);
+  const normalisedMethod = typeof method === 'string' && method.trim() ? method.trim().toUpperCase() : 'GET';
   const timestamp = buildTimestamp();
   const normalisedQuery = queryString || '';
-  const normalisedPayload = payload || '';
+  const normalisedPayload = payload ?? '';
   const signaturePayload = [
-    method.toUpperCase(),
+    normalisedMethod,
     requestPath,
     normalisedQuery,
     normalisedPayload,
     timestamp,
   ].join('\n');
-  const signature = buildSignature(normaliseCredential(apiSecret), signaturePayload);
+  const signature = buildSignature(secret, signaturePayload);
   const url = `${baseUrl}${requestPath}${queryString ? `?${queryString}` : ''}`;
 
   const headers = {
-    KEY: normaliseCredential(apiKey),
+    KEY: key,
     Timestamp: timestamp,
     SIGN: signature,
     Accept: 'application/json',
   };
-  if (payload) {
-    headers['Content-Type'] = 'application/json';
+  if (contentType) {
+    headers['Content-Type'] = contentType;
   }
 
   let response;
   try {
-    response = await fetch(url, {
-      method,
+    const requestInit = {
+      method: normalisedMethod,
       headers,
-      body: payload || undefined,
-    });
+    };
+    if (payload && payload.length > 0) {
+      requestInit.body = payload;
+    } else if (typeof body === 'string' && body.length === 0) {
+      requestInit.body = '';
+    }
+    response = await fetch(url, requestInit);
   } catch (networkError) {
     throw new GateApiError(networkError.message || 'Failed to reach Gate.io API.', { status: null });
   }
