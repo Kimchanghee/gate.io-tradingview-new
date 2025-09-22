@@ -4,7 +4,13 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
 import { loadPersistentState, savePersistentState } from './services/persistence.js';
-import { fetchGateSnapshot, fetchGateAccounts, fetchGatePositions, GateApiError } from './services/gateApi.js';
+import {
+  fetchGateSnapshot,
+  fetchGateAccounts,
+  fetchGatePositions,
+  GateApiError,
+  isGateCredentialError,
+} from './services/gateApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -536,9 +542,10 @@ app.get('/api/positions', async (req, res) => {
     const message = error instanceof GateApiError
       ? error.message
       : '포지션 정보를 불러오지 못했습니다.';
+    const credentialError = isGateCredentialError(error);
     patchUserConnectionForNetwork(uid, network, {
       lastError: message,
-      connected: status !== 401 && status !== 403 ? true : false,
+      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
     });
     console.error(`[Gate.io] Failed to load positions for UID ${uid} (${network}):`, error?.message || error);
     const fallback = getPositionsForNetwork(uid, network);
@@ -596,7 +603,7 @@ app.post('/api/connect', async (req, res) => {
       network: networkKey,
     });
   } catch (error) {
-    const status = error instanceof GateApiError && error.status ? error.status : 502;
+    const status = error instanceof GateApiError && typeof error.status === 'number' ? error.status : 502;
     const message = error instanceof GateApiError
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
@@ -634,6 +641,39 @@ app.post('/api/connect', async (req, res) => {
       apiSecret: String(apiSecret),
       lastError: message,
     });
+
+    const credentialError = isGateCredentialError(error);
+    const isClientError =
+      error instanceof GateApiError &&
+      typeof error.status === 'number' &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 429;
+    const shouldRetryWithFallback = credentialError || isClientError;
+
+    if (shouldRetryWithFallback) {
+      const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
+      try {
+        const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
+          logSuffix: ' (auto-detected network)',
+        });
+
+        return res.json({
+          ok: true,
+          connected: true,
+          accounts: fallbackSnapshot.accounts,
+          positions: fallbackSnapshot.positions,
+          autoTradingEnabled: Boolean(user.autoTradingEnabled),
+          network: fallbackNetworkKey,
+          networkMismatch: true,
+        });
+      } catch (fallbackError) {
+        console.error(
+          `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
+          fallbackError?.message || fallbackError,
+        );
+      }
+    }
 
     console.error(`[Gate.io] Failed to connect UID ${uid} (${networkKey}):`, error?.message || error);
 
@@ -695,9 +735,11 @@ app.get('/api/accounts/all', async (req, res) => {
       ? error.message
       : '계정 정보를 불러오지 못했습니다.';
 
+    const credentialError = isGateCredentialError(error);
+
     patchUserConnectionForNetwork(uid, network, {
       lastError: message,
-      connected: status !== 401 && status !== 403 ? true : false,
+      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
     });
 
     console.error(`[Gate.io] Failed to refresh accounts for UID ${uid} (${network}):`, error?.message || error);
