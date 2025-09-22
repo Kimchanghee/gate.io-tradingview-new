@@ -4,7 +4,13 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
 import { loadPersistentState, savePersistentState } from './services/persistence.js';
-import { fetchGateSnapshot, fetchGateAccounts, fetchGatePositions, GateApiError } from './services/gateApi.js';
+import {
+  fetchGateSnapshot,
+  fetchGateAccounts,
+  fetchGatePositions,
+  GateApiError,
+  isGateCredentialError,
+} from './services/gateApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,35 +70,6 @@ const resolveNetworks = (value) => {
     return [NETWORK_MAINNET, NETWORK_TESTNET];
   }
   return [resolveNetworkValue(value)];
-};
-
-const GATE_AUTH_ERROR_PATTERNS = [
-  'invalid key',
-  'invalid api key',
-  'invalid secret',
-  'invalid signature',
-  'signature mismatch',
-  'invalid sign',
-  'api key not found',
-  'key does not exist',
-];
-
-const isGateCredentialError = (error) => {
-  if (!(error instanceof GateApiError)) {
-    return false;
-  }
-
-  const status = typeof error.status === 'number' ? error.status : null;
-  if (status === 401 || status === 403) {
-    return true;
-  }
-
-  if (status === 400) {
-    const message = String(error.message || '').toLowerCase();
-    return GATE_AUTH_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
-  }
-
-  return false;
 };
 
 const ensureUserConnectionRecord = (uid) => {
