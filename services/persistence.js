@@ -33,27 +33,32 @@ const gcsConfigured = Boolean(GCS_BUCKET);
 const fetchAvailable = typeof fetch === 'function';
 const gcsEnabled = gcsConfigured && fetchAvailable;
 
+const bilingual = (english, korean) => `${english} (${korean})`;
+
 const describeStorageTarget = () => {
   if (!gcsEnabled) {
     if (!gcsConfigured) {
-      return (
-        'Falling back to local data/state.json because no Cloud Storage bucket is configured. ' +
-        'Set the STATE_STORAGE_BUCKET environment variable to persist admin data across deployments.'
+      return bilingual(
+        'Falling back to local data/state.json because no Cloud Storage bucket is configured. Set the STATE_STORAGE_BUCKET environment variable to persist admin data across deployments.',
+        'STATE_STORAGE_BUCKET 환경 변수가 비어 있어 data/state.json 파일을 사용합니다. 값을 지정하면 관리자 데이터가 배포 후에도 유지됩니다.',
       );
     }
     if (!fetchAvailable) {
-      return (
-        'Falling back to local data/state.json because the global fetch API is unavailable. ' +
-        'Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.'
+      return bilingual(
+        'Falling back to local data/state.json because the global fetch API is unavailable. Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.',
+        '글로벌 fetch API를 사용할 수 없어 data/state.json 파일에 저장합니다. Node 18+ 환경이거나 fetch를 제공해야 Cloud Storage 저장이 활성화됩니다.',
       );
     }
-    return (
-      'Falling back to local data/state.json because Cloud Storage could not be initialised. '
-      + 'Check the Cloud Run service account permissions and metadata server connectivity.'
+    return bilingual(
+      'Falling back to local data/state.json because Cloud Storage could not be initialised. Check the Cloud Run service account permissions and metadata server connectivity.',
+      'Cloud Storage 초기화에 실패해 data/state.json 파일을 사용합니다. Cloud Run 서비스 계정 권한과 메타데이터 서버 접근을 확인하세요.',
     );
   }
   const objectPath = GCS_OBJECT || 'state.json';
-  return `Persisting admin data to Cloud Storage bucket "${GCS_BUCKET}" as "${objectPath}".`;
+  return bilingual(
+    `Persisting admin data to Cloud Storage bucket "${GCS_BUCKET}" as "${objectPath}".`,
+    `관리자 데이터가 Cloud Storage 버킷 "${GCS_BUCKET}"의 "${objectPath}" 객체에 저장됩니다.`,
+  );
 };
 
 console.info(`[persistence] ${describeStorageTarget()}`);
@@ -154,8 +159,10 @@ const loadFromGoogleCloudStorage = async () => {
     return normalizeState(JSON.parse(text));
   } catch (err) {
     console.error(
-      'Failed to load persisted state from Google Cloud Storage. ' +
-        'Confirm the service account has storage.objects.get access and that the metadata server is reachable.',
+      bilingual(
+        'Failed to load persisted state from Google Cloud Storage. Confirm the service account has storage.objects.get access and that the metadata server is reachable.',
+        'Google Cloud Storage에서 상태를 불러오지 못했습니다. 서비스 계정에 storage.objects.get 권한이 있는지와 메타데이터 서버에 접근 가능한지 확인하세요.',
+      ),
       err,
     );
     return null;
@@ -209,8 +216,10 @@ export const savePersistentState = async (state) => {
         return;
       } catch (err) {
         console.error(
-          'Failed to write persisted state to Google Cloud Storage. ' +
-            'Ensure the service account has storage.objects.create access and the bucket exists.',
+          bilingual(
+            'Failed to write persisted state to Google Cloud Storage. Ensure the service account has storage.objects.create access and the bucket exists.',
+            'Google Cloud Storage에 상태를 기록하지 못했습니다. 서비스 계정에 storage.objects.create 권한이 있는지와 대상 버킷이 존재하는지 확인하세요.',
+          ),
           err,
         );
       }

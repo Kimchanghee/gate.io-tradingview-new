@@ -37,6 +37,15 @@ Cloud metadata server, so ensure the Cloud Run service account has `storage.obje
 permissions on the target bucket. Local file storage continues to be used automatically when no bucket is configured, allowing
 local development without additional setup.
 
+> **중요:** Cloud Storage 버킷 생성과 권한 부여, 그리고 환경 변수 지정은 애플리케이션이 자동으로 처리하지 않습니다. 아래 안내에 따라 직접 수동으로 설정해야 웹훅과 승인 목록이 재배포 후에도 유지됩니다.
+
+### 필수 수동 설정 요약
+
+1. **Cloud Storage 버킷 준비** – 관리자 데이터를 저장할 버킷을 새로 만들거나, 이미 존재하는 버킷을 지정합니다.
+2. **Cloud Run 서비스 계정 권한 확인** – 해당 서비스 계정에 `storage.objects.get`과 `storage.objects.create` 권한(예: `Storage Object Admin` 역할)을 부여합니다.
+3. **배포 시 환경 변수 전달** – `STATE_STORAGE_BUCKET`(필요 시 `STATE_STORAGE_OBJECT`, `STATE_STORAGE_PROJECT`) 값을 Cloud Run에 설정합니다.
+4. **배포 후 검증** – 애플리케이션 실행 후 버킷에 `state.json`이 생성·갱신되는지 확인하고, 로그에서 `[persistence]` 메시지를 확인합니다.
+
 ### Google Cloud Storage 설정 단계 (한글 안내)
 
 1. **버킷 생성** – Cloud Console의 "스토리지 → 버킷 만들기" 화면에서 버킷 이름과 리전을 정해 생성하거나, 아래처럼 gcloud CLI를 사용합니다.
