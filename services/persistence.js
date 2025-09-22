@@ -177,6 +177,11 @@ const loadFromGoogleCloudStorage = async () => {
       'Google Cloud Storage에서 상태를 불러오지 못했습니다. 서비스 계정에 storage.objects.get 권한이 있는지와 메타데이터 서버에 접근 가능한지 확인하세요.',
       err,
     );
+    logMultilingual(
+      'warn',
+      'Falling back to local data/state.json after Cloud Storage error.',
+      'Cloud Storage 오류로 인해 data/state.json 파일에 저장합니다.',
+    );
     return null;
   }
 };
