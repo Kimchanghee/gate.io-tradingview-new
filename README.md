@@ -46,6 +46,13 @@ local development without additional setup.
 3. **배포 시 환경 변수 전달** – `STATE_STORAGE_BUCKET`(필요 시 `STATE_STORAGE_OBJECT`, `STATE_STORAGE_PROJECT`) 값을 Cloud Run에 설정합니다.
 4. **배포 후 검증** – 애플리케이션 실행 후 버킷에 `state.json`이 생성·갱신되는지 확인하고, 로그에서 `[persistence]` 메시지를 확인합니다.
 
+#### 배포 전 체크리스트
+
+- [ ] Cloud Storage 버킷을 만들었거나 사용할 버킷 이름을 확인했습니다.
+- [ ] Cloud Run 서비스가 사용하는 서비스 계정에 `storage.objects.get`/`storage.objects.create` 권한이 있는지 확인했습니다.
+- [ ] `STATE_STORAGE_BUCKET` (필요하면 `STATE_STORAGE_OBJECT`, `STATE_STORAGE_PROJECT`) 환경 변수를 다음 배포 명령 또는 콘솔 설정에 반영했습니다.
+- [ ] 재배포 후 `[persistence]` 로그가 Cloud Storage 사용 여부를 올바르게 안내하는지 점검했습니다.
+
 ### Google Cloud Storage 설정 단계 (한글 안내)
 
 1. **버킷 생성** – Cloud Console의 "스토리지 → 버킷 만들기" 화면에서 버킷 이름과 리전을 정해 생성하거나, 아래처럼 gcloud CLI를 사용합니다.
@@ -64,9 +71,9 @@ local development without additional setup.
      --source=. \
      --set-env-vars=STATE_STORAGE_BUCKET=YOUR_BUCKET,STATE_STORAGE_OBJECT=state.json
    ```
-4. **동작 확인** – 관리자 페이지에서 웹훅 또는 승인 목록을 수정한 뒤, Cloud Storage 버킷에 `state.json`이 생성·갱신되는지 확인합니다. 서버 로그에 `[persistence] Persisting admin data to Cloud Storage bucket "버킷" as "state.json".` 메시지가 표시되면 Cloud Storage가 정상적으로 사용 중입니다.
+4. **동작 확인** – 관리자 페이지에서 웹훅 또는 승인 목록을 수정한 뒤, Cloud Storage 버킷에 `state.json`이 생성·갱신되는지 확인합니다. 서버 로그에는 Cloud Storage 사용 여부와, 오류 시 `data/state.json`으로 폴백했다는 경고 메시지가 영어/한글로 각각 출력됩니다.
 
-Cloud Storage 설정을 하지 않으면 서버가 자동으로 `data/state.json` 파일을 사용하므로 로컬 개발에는 추가 구성이 필요 없습니다. 다만 Cloud Run 같이 컨테이너 파일 시스템이 초기화되는 환경에서는 버킷을 반드시 설정해야 데이터가 유지됩니다. 서버가 시작될 때 `[persistence] ...` 로그로 현재 저장 위치를 안내하므로, `Persisting admin data to Cloud Storage bucket "버킷" as "state.json".` 메시지가 출력되는지 확인해 주세요.
+Cloud Storage 설정을 하지 않으면 서버가 자동으로 `data/state.json` 파일을 사용하므로 로컬 개발에는 추가 구성이 필요 없습니다. 다만 Cloud Run 같이 컨테이너 파일 시스템이 초기화되는 환경에서는 버킷을 반드시 설정해야 데이터가 유지됩니다. 서버가 시작될 때 `[persistence] ...` 로그가 영어/한글 두 줄로 출력되며, `Persisting admin data to Cloud Storage bucket "버킷" as "state.json".`(또는 폴백 안내) 메시지가 보이는지 확인해 주세요.
 
 ### Cloud Storage 설정이 자동으로 이루어지나요?
 
