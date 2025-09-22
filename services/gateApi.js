@@ -3,7 +3,9 @@ import crypto from 'node:crypto';
 const trimTrailingSlash = (value) => String(value).replace(/\/+$/, '');
 
 const DEFAULT_MAINNET_BASE = trimTrailingSlash(process.env.GATE_MAINNET_API_BASE || 'https://api.gateio.ws');
-const DEFAULT_TESTNET_BASE = trimTrailingSlash(process.env.GATE_TESTNET_API_BASE || 'https://fx-api-testnet.gateio.ws');
+const DEFAULT_TESTNET_BASE = trimTrailingSlash(
+  process.env.GATE_TESTNET_API_BASE || 'https://fx-api-testnet.gateio.ws',
+);
 
 const API_PREFIX = '/api/v4';
 const STABLE_COINS = new Set(['USDT', 'USD', 'USDG', 'USDC', 'USDTE']);
@@ -59,6 +61,43 @@ const normaliseCurrency = (value) => String(value || '').toUpperCase();
 
 const getBaseUrl = (isTestnet) => (isTestnet ? DEFAULT_TESTNET_BASE : DEFAULT_MAINNET_BASE);
 
+const normalisePath = (value) => {
+  const stringValue = String(value || '');
+  if (!stringValue) {
+    return '/';
+  }
+  return stringValue.startsWith('/') ? stringValue : `/${stringValue}`;
+};
+
+const normaliseCredential = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim();
+};
+
+const buildTimestamp = () => {
+  const seconds = Date.now() / 1000;
+  const fixed = seconds.toFixed(6);
+  const trimmed = fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+  const normalised = trimmed.endsWith('.') ? trimmed.slice(0, -1) : trimmed;
+  return normalised || seconds.toString();
+};
+
+const serialiseBody = (body) => {
+  if (body === undefined || body === null) {
+    return '';
+  }
+  if (typeof body === 'string') {
+    return body;
+  }
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return '';
+  }
+};
+
 const buildSignature = (secret, payload) => crypto.createHmac('sha512', secret).update(payload).digest('hex');
 
 const buildQueryString = (query) => {
@@ -80,23 +119,33 @@ const buildQueryString = (query) => {
       params.append(key, String(val));
     }
   });
+  params.sort();
   return params.toString();
 };
 
 const requestGateApi = async ({ apiKey, apiSecret, method, path, query, body, isTestnet }) => {
   const baseUrl = getBaseUrl(isTestnet);
-  const requestPath = `${API_PREFIX}${path}`;
+  const requestPath = `${API_PREFIX}${normalisePath(path)}`;
   const queryString = buildQueryString(query);
-  const payload = body ? JSON.stringify(body) : '';
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signaturePayload = [method.toUpperCase(), requestPath, queryString, payload].join('\n');
-  const signature = buildSignature(apiSecret, signaturePayload);
+  const payload = serialiseBody(body);
+  const timestamp = buildTimestamp();
+  const normalisedQuery = queryString || '';
+  const normalisedPayload = payload || '';
+  const signaturePayload = [
+    method.toUpperCase(),
+    requestPath,
+    normalisedQuery,
+    normalisedPayload,
+    timestamp,
+  ].join('\n');
+  const signature = buildSignature(normaliseCredential(apiSecret), signaturePayload);
   const url = `${baseUrl}${requestPath}${queryString ? `?${queryString}` : ''}`;
 
   const headers = {
-    KEY: apiKey,
+    KEY: normaliseCredential(apiKey),
     Timestamp: timestamp,
     SIGN: signature,
+    Accept: 'application/json',
   };
   if (payload) {
     headers['Content-Type'] = 'application/json';
