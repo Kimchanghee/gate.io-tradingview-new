@@ -435,7 +435,7 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
     totalEstimatedValue: 0,
   };
 
-  let successfulCalls = 0;
+  let successfulRequests = 0;
   let authenticationFailure = false;
 
   const handleError = (label, error) => {
@@ -453,10 +453,10 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
       method: 'GET',
       path: '/futures/usdt/accounts',
     });
+    successfulRequests += 1;
     const futuresAccount = mapFuturesAccount(futuresRaw);
     if (futuresAccount) {
       accounts.futures = futuresAccount;
-      successfulCalls += 1;
     }
   } catch (error) {
     handleError('futures account', error);
@@ -470,10 +470,8 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
       method: 'GET',
       path: '/spot/accounts',
     });
+    successfulRequests += 1;
     accounts.spot = mapSpotBalances(spotRaw);
-    if (accounts.spot.length) {
-      successfulCalls += 1;
-    }
   } catch (error) {
     handleError('spot balances', error);
   }
@@ -486,10 +484,8 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
       method: 'GET',
       path: '/margin/accounts',
     });
+    successfulRequests += 1;
     accounts.margin = mapMarginAccounts(marginRaw);
-    if (accounts.margin.length) {
-      successfulCalls += 1;
-    }
   } catch (error) {
     handleError('margin accounts', error);
   }
@@ -502,10 +498,12 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
       method: 'GET',
       path: '/options/accounts',
     });
-    const mappedOptions = Array.isArray(optionsRaw) ? optionsRaw.map(mapOptionsAccount).filter(Boolean) : [mapOptionsAccount(optionsRaw)].filter(Boolean);
+    successfulRequests += 1;
+    const mappedOptions = Array.isArray(optionsRaw)
+      ? optionsRaw.map(mapOptionsAccount).filter(Boolean)
+      : [mapOptionsAccount(optionsRaw)].filter(Boolean);
     if (mappedOptions.length) {
       accounts.options = mappedOptions[0];
-      successfulCalls += 1;
     }
   } catch (error) {
     handleError('options accounts', error);
@@ -513,13 +511,13 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
 
   accounts.totalEstimatedValue = aggregateTotalValue(accounts);
 
-  if (!successfulCalls && authenticationFailure) {
+  if (!successfulRequests && authenticationFailure) {
     throw new GateApiError('Gate.io API 인증에 실패했습니다. API 키 권한을 확인해주세요.', {
       status: 403,
     });
   }
 
-  if (!successfulCalls && !authenticationFailure) {
+  if (!successfulRequests && !authenticationFailure) {
     throw new GateApiError('Gate.io 계정 정보를 불러오지 못했습니다.', {
       status: 502,
     });
@@ -531,7 +529,7 @@ export const fetchGateAccounts = async ({ apiKey, apiSecret, isTestnet }) => {
 export const fetchGatePositions = async ({ apiKey, apiSecret, isTestnet }) => {
   const settleCurrencies = ['usdt', 'usd', 'btc'];
   const positions = [];
-  let successfulCalls = 0;
+  let successfulResponses = 0;
   let authenticationFailure = false;
 
   for (const settle of settleCurrencies) {
@@ -543,12 +541,12 @@ export const fetchGatePositions = async ({ apiKey, apiSecret, isTestnet }) => {
         method: 'GET',
         path: `/futures/${settle}/positions`,
       });
+      successfulResponses += 1;
       if (Array.isArray(response)) {
         const mapped = response
           .map(mapFuturesPosition)
           .filter((position) => position && position.size !== 0);
         if (mapped.length) {
-          successfulCalls += 1;
           positions.push(...mapped);
         }
       }
@@ -563,7 +561,7 @@ export const fetchGatePositions = async ({ apiKey, apiSecret, isTestnet }) => {
     }
   }
 
-  if (!successfulCalls && authenticationFailure) {
+  if (!successfulResponses && authenticationFailure) {
     throw new GateApiError('선물 포지션 정보를 불러올 권한이 없습니다.', { status: 403 });
   }
 
