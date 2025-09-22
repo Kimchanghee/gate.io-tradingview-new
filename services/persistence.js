@@ -29,19 +29,27 @@ const GOOGLE_METADATA_TOKEN_URL =
   process.env.STATE_STORAGE_TOKEN_URL ||
   'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 
-const gcsEnabled = Boolean(GCS_BUCKET && typeof fetch === 'function');
+const gcsConfigured = Boolean(GCS_BUCKET);
+const fetchAvailable = typeof fetch === 'function';
+const gcsEnabled = gcsConfigured && fetchAvailable;
 
 const describeStorageTarget = () => {
   if (!gcsEnabled) {
-    if (!GCS_BUCKET) {
+    if (!gcsConfigured) {
       return (
         'Falling back to local data/state.json because no Cloud Storage bucket is configured. ' +
         'Set the STATE_STORAGE_BUCKET environment variable to persist admin data across deployments.'
       );
     }
+    if (!fetchAvailable) {
+      return (
+        'Falling back to local data/state.json because the global fetch API is unavailable. ' +
+        'Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.'
+      );
+    }
     return (
-      'Falling back to local data/state.json because the global fetch API is unavailable. ' +
-      'Upgrade to Node 18+ or provide fetch to enable Cloud Storage persistence.'
+      'Falling back to local data/state.json because Cloud Storage could not be initialised. '
+      + 'Check the Cloud Run service account permissions and metadata server connectivity.'
     );
   }
   const objectPath = GCS_OBJECT || 'state.json';
@@ -145,7 +153,11 @@ const loadFromGoogleCloudStorage = async () => {
     const text = await response.text();
     return normalizeState(JSON.parse(text));
   } catch (err) {
-    console.error('Failed to load persisted state from Google Cloud Storage', err);
+    console.error(
+      'Failed to load persisted state from Google Cloud Storage. ' +
+        'Confirm the service account has storage.objects.get access and that the metadata server is reachable.',
+      err,
+    );
     return null;
   }
 };
@@ -196,7 +208,11 @@ export const savePersistentState = async (state) => {
         await saveToGoogleCloudStorage(payload);
         return;
       } catch (err) {
-        console.error('Failed to write persisted state to Google Cloud Storage', err);
+        console.error(
+          'Failed to write persisted state to Google Cloud Storage. ' +
+            'Ensure the service account has storage.objects.create access and the bucket exists.',
+          err,
+        );
       }
     }
     await saveToFileSystem(payload);

@@ -55,6 +55,29 @@ local development without additional setup.
      --source=. \
      --set-env-vars=STATE_STORAGE_BUCKET=YOUR_BUCKET,STATE_STORAGE_OBJECT=state.json
    ```
-4. **동작 확인** – 관리자 페이지에서 웹훅 또는 승인 목록을 수정한 뒤, Cloud Storage 버킷에 `state.json`이 생성·갱신되는지 확인합니다. 로그에 `[persistence] Persisting admin data...` 메시지가 표시되면 Cloud Storage가 정상적으로 사용 중입니다.
+4. **동작 확인** – 관리자 페이지에서 웹훅 또는 승인 목록을 수정한 뒤, Cloud Storage 버킷에 `state.json`이 생성·갱신되는지 확인합니다. 서버 로그에 `[persistence] Persisting admin data to Cloud Storage bucket "버킷" as "state.json".` 메시지가 표시되면 Cloud Storage가 정상적으로 사용 중입니다.
 
-Cloud Storage 설정을 하지 않으면 서버가 자동으로 `data/state.json` 파일을 사용하므로 로컬 개발에는 추가 구성이 필요 없습니다. 다만 Cloud Run 같이 컨테이너 파일 시스템이 초기화되는 환경에서는 버킷을 반드시 설정해야 데이터가 유지됩니다.
+Cloud Storage 설정을 하지 않으면 서버가 자동으로 `data/state.json` 파일을 사용하므로 로컬 개발에는 추가 구성이 필요 없습니다. 다만 Cloud Run 같이 컨테이너 파일 시스템이 초기화되는 환경에서는 버킷을 반드시 설정해야 데이터가 유지됩니다. 서버가 시작될 때 `[persistence] ...` 로그로 현재 저장 위치를 안내하므로, `Persisting admin data to Cloud Storage bucket "버킷" as "state.json".` 메시지가 출력되는지 확인해 주세요.
+
+### Cloud Storage 설정이 자동으로 이루어지나요?
+
+아니요. 버킷 생성, 권한 부여, 환경 변수 지정은 Cloud Run이나 gcloud가 대신 처리해 주지 않으므로 직접 수행해야 합니다. 위 절차를 따라 버킷을 만들고 `STATE_STORAGE_BUCKET` 값을 지정하지 않으면 컨테이너 내부 파일만 사용하게 되어 재배포 시 데이터가 초기화됩니다.
+
+### Cloud Run 서비스 계정 권한 확인 방법 (상세)
+
+1. **사용 중인 서비스 계정 확인** – Cloud Run 콘솔에서 서비스를 연 뒤 “보안” 탭에서 서비스 계정을 확인합니다.
+2. **콘솔에서 역할 확인** – Cloud Console의 “IAM 및 관리자 → IAM” 화면에서 위 서비스 계정을 찾아 `Storage Object Admin` 역할이 있는지 확인합니다. 없다면 “권한 부여” 버튼으로 추가합니다.
+3. **CLI로 점검** – 아래 명령으로 현재 부여된 역할을 확인할 수 있습니다.
+   ```bash
+   gcloud projects get-iam-policy YOUR_PROJECT \
+     --flatten="bindings[].members" \
+     --filter="bindings.members:serviceAccount:YOUR_SERVICE_ACCOUNT" \
+     --format="table(bindings.role)"
+   ```
+   필요한 경우 다음 명령으로 역할을 추가합니다.
+   ```bash
+   gcloud projects add-iam-policy-binding YOUR_PROJECT \
+     --member="serviceAccount:YOUR_SERVICE_ACCOUNT" \
+     --role="roles/storage.objectAdmin"
+   ```
+4. **권한 오류 로그 확인** – Cloud Run 로그에 `Failed to load/write persisted state to Google Cloud Storage` 경고가 보이면 서비스 계정 권한이나 메타데이터 서버 접근을 다시 확인해 주세요.
