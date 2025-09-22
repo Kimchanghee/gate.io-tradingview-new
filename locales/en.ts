@@ -11,6 +11,8 @@ export const en = {
   apiSecret: "API Secret",
   currentNetwork: "Current Network",
   networkHint: "You can change the network from the header above",
+  networkAutoSwitchedTestnet: "Detected Gate.io Testnet credentials. Switched to Testnet automatically.",
+  networkAutoSwitchedMainnet: "Detected Gate.io Mainnet credentials. Switched to Mainnet automatically.",
   connect: "Connect API",
   connecting: "Connecting...",
   disconnect: "Disconnect",

@@ -66,6 +66,35 @@ const resolveNetworks = (value) => {
   return [resolveNetworkValue(value)];
 };
 
+const GATE_AUTH_ERROR_PATTERNS = [
+  'invalid key',
+  'invalid api key',
+  'invalid secret',
+  'invalid signature',
+  'signature mismatch',
+  'invalid sign',
+  'api key not found',
+  'key does not exist',
+];
+
+const isGateCredentialError = (error) => {
+  if (!(error instanceof GateApiError)) {
+    return false;
+  }
+
+  const status = typeof error.status === 'number' ? error.status : null;
+  if (status === 401 || status === 403) {
+    return true;
+  }
+
+  if (status === 400) {
+    const message = String(error.message || '').toLowerCase();
+    return GATE_AUTH_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+  }
+
+  return false;
+};
+
 const ensureUserConnectionRecord = (uid) => {
   if (!userConnections.has(uid)) {
     userConnections.set(uid, {
@@ -536,9 +565,10 @@ app.get('/api/positions', async (req, res) => {
     const message = error instanceof GateApiError
       ? error.message
       : '포지션 정보를 불러오지 못했습니다.';
+    const credentialError = isGateCredentialError(error);
     patchUserConnectionForNetwork(uid, network, {
       lastError: message,
-      connected: status !== 401 && status !== 403 ? true : false,
+      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
     });
     console.error(`[Gate.io] Failed to load positions for UID ${uid} (${network}):`, error?.message || error);
     const fallback = getPositionsForNetwork(uid, network);
@@ -561,14 +591,14 @@ app.post('/api/connect', async (req, res) => {
     typeof isTestnet === 'boolean' ? isTestnet : network,
   );
 
-  try {
+  const connectForNetwork = async (targetNetwork, { logSuffix = '' } = {}) => {
     const snapshot = await fetchGateSnapshot({
       apiKey: String(apiKey),
       apiSecret: String(apiSecret),
-      isTestnet: networkKey === NETWORK_TESTNET,
+      isTestnet: targetNetwork === NETWORK_TESTNET,
     });
 
-    patchUserConnectionForNetwork(uid, networkKey, {
+    patchUserConnectionForNetwork(uid, targetNetwork, {
       connected: true,
       lastConnectedAt: nowIso(),
       apiKey: String(apiKey),
@@ -577,9 +607,15 @@ app.post('/api/connect', async (req, res) => {
       lastError: null,
     });
 
-    setPositionsForNetwork(uid, networkKey, snapshot.positions);
+    setPositionsForNetwork(uid, targetNetwork, snapshot.positions);
 
-    addLog('info', `[API] Connected user ${uid} (${networkKey}).`);
+    addLog('info', `[API] Connected user ${uid} (${targetNetwork})${logSuffix}`);
+
+    return snapshot;
+  };
+
+  try {
+    const snapshot = await connectForNetwork(networkKey);
 
     return res.json({
       ok: true,
@@ -587,12 +623,39 @@ app.post('/api/connect', async (req, res) => {
       accounts: snapshot.accounts,
       positions: snapshot.positions,
       autoTradingEnabled: Boolean(user.autoTradingEnabled),
+      network: networkKey,
     });
   } catch (error) {
     const status = error instanceof GateApiError && error.status ? error.status : 502;
     const message = error instanceof GateApiError
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
+
+    const credentialError = isGateCredentialError(error);
+
+    if (credentialError) {
+      const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
+      try {
+        const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
+          logSuffix: ' (auto-detected network)',
+        });
+
+        return res.json({
+          ok: true,
+          connected: true,
+          accounts: fallbackSnapshot.accounts,
+          positions: fallbackSnapshot.positions,
+          autoTradingEnabled: Boolean(user.autoTradingEnabled),
+          network: fallbackNetworkKey,
+          networkMismatch: true,
+        });
+      } catch (fallbackError) {
+        console.error(
+          `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
+          fallbackError?.message || fallbackError,
+        );
+      }
+    }
 
     patchUserConnectionForNetwork(uid, networkKey, {
       connected: false,
