@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gate.io Trading Bot</title>
+    <title>Gate.io Trading Bot Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -12,329 +12,503 @@
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 20px;
         }
         
         .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
             background: white;
             border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 800px;
-            width: 90%;
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-        }
-        
-        .status {
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
+            padding: 30px;
             margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
         }
         
-        .status.online {
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .status-badge.online {
             background: #10b981;
             color: white;
         }
         
-        .status.offline {
+        .status-badge.offline {
             background: #ef4444;
             color: white;
         }
         
-        .info-grid {
+        .cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
         
-        .info-card {
-            background: #f3f4f6;
-            padding: 20px;
-            border-radius: 10px;
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
         }
         
-        .info-card h3 {
-            color: #6b7280;
+        .card h3 {
+            color: #666;
             font-size: 0.9em;
-            margin-bottom: 5px;
             text-transform: uppercase;
-        }
-        
-        .info-card p {
-            color: #111827;
-            font-size: 1.5em;
+            margin-bottom: 10px;
             font-weight: 600;
         }
         
-        .webhook-info {
-            background: #fef3c7;
-            border: 2px solid #fbbf24;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
+        .card .value {
+            color: #333;
+            font-size: 2em;
+            font-weight: bold;
         }
         
-        .webhook-info h3 {
-            color: #92400e;
-            margin-bottom: 10px;
+        .card .sub-value {
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .webhook-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .webhook-section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5em;
         }
         
         .webhook-url {
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-family: monospace;
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
             word-break: break-all;
-            color: #1f2937;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .copy-btn {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        .copy-btn:hover {
+            background: #4f46e5;
+        }
+        
+        .test-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .test-section h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .test-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .test-controls select,
+        .test-controls input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            flex: 1;
+        }
+        
+        .test-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        .test-btn:hover {
+            background: #059669;
         }
         
         .logs {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .logs h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .log-container {
             background: #1f2937;
             color: #10b981;
             padding: 20px;
             border-radius: 10px;
-            font-family: monospace;
+            font-family: 'Courier New', monospace;
             font-size: 0.9em;
-            height: 300px;
+            height: 400px;
             overflow-y: auto;
         }
         
         .log-entry {
             margin-bottom: 5px;
-            opacity: 0;
-            animation: fadeIn 0.3s forwards;
+            padding: 5px;
+            border-left: 3px solid transparent;
         }
         
-        @keyframes fadeIn {
-            to {
-                opacity: 1;
-            }
+        .log-entry.success {
+            border-left-color: #10b981;
         }
         
-        .buttons {
-            margin-top: 30px;
+        .log-entry.error {
+            border-left-color: #ef4444;
+            color: #ef4444;
+        }
+        
+        .log-entry.info {
+            border-left-color: #3b82f6;
+            color: #3b82f6;
+        }
+        
+        .alert {
+            background: #fef3c7;
+            border: 2px solid #fbbf24;
+            color: #92400e;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .config-status {
             display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        
+        .config-item {
+            display: flex;
+            align-items: center;
             gap: 10px;
         }
         
-        button {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
+        .config-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
         }
         
-        button.primary {
-            background: #6366f1;
+        .config-icon.ok {
+            background: #10b981;
             color: white;
         }
         
-        button.primary:hover {
-            background: #4f46e5;
+        .config-icon.warning {
+            background: #fbbf24;
+            color: white;
         }
         
-        button.danger {
+        .config-icon.error {
             background: #ef4444;
             color: white;
-        }
-        
-        button.danger:hover {
-            background: #dc2626;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Gate.io Trading Bot</h1>
-        <span class="status online" id="status">● Online</span>
-        
-        <div class="info-grid">
-            <div class="info-card">
-                <h3>Active Positions</h3>
-                <p id="positions">0</p>
-            </div>
-            <div class="info-card">
-                <h3>24h Trades</h3>
-                <p id="trades">0</p>
-            </div>
-            <div class="info-card">
-                <h3>Engine Status</h3>
-                <p id="engine">Active</p>
-            </div>
-            <div class="info-card">
-                <h3>Uptime</h3>
-                <p id="uptime">0h 0m</p>
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 Gate.io Trading Bot</h1>
+            <span class="status-badge online" id="status">● ONLINE</span>
+            
+            <div class="config-status">
+                <div class="config-item">
+                    <div class="config-icon" id="api-status">?</div>
+                    <span>Gate.io API</span>
+                </div>
+                <div class="config-item">
+                    <div class="config-icon" id="webhook-status">?</div>
+                    <span>Webhook</span>
+                </div>
+                <div class="config-item">
+                    <div class="config-icon" id="server-status">✓</div>
+                    <span>Server</span>
+                </div>
             </div>
         </div>
         
-        <div class="webhook-info">
-            <h3>📮 TradingView Webhook URL</h3>
-            <div class="webhook-url" id="webhookUrl">Loading...</div>
+        <!-- Alert -->
+        <div class="alert" id="alert" style="display: none;">
+            ⚠️ Gate.io API가 구성되지 않았습니다. 환경변수를 설정하세요.
         </div>
         
-        <div class="logs" id="logs">
-            <div class="log-entry">System starting...</div>
+        <!-- Stats Cards -->
+        <div class="cards">
+            <div class="card">
+                <h3>서버 상태</h3>
+                <div class="value" id="server-uptime">0시간</div>
+                <div class="sub-value">Uptime</div>
+            </div>
+            
+            <div class="card">
+                <h3>오늘 신호</h3>
+                <div class="value" id="signals-today">0</div>
+                <div class="sub-value">받은 웹훅</div>
+            </div>
+            
+            <div class="card">
+                <h3>마지막 활동</h3>
+                <div class="value" id="last-activity">-</div>
+                <div class="sub-value" id="last-activity-time">없음</div>
+            </div>
         </div>
         
-        <div class="buttons">
-            <button class="primary" onclick="testWebhook()">Test Webhook</button>
-            <button class="danger" onclick="emergencyStop()">Emergency Stop</button>
+        <!-- Webhook URL -->
+        <div class="webhook-section">
+            <h2>📡 TradingView Webhook URL</h2>
+            <div class="webhook-url" id="webhook-url">Loading...</div>
+            <button class="copy-btn" onclick="copyWebhookUrl()">복사하기</button>
+            
+            <div style="margin-top: 20px;">
+                <h3>TradingView Alert 메시지 형식:</h3>
+                <div class="webhook-url">
+{
+  "action": "{{strategy.order.action}}",
+  "symbol": "{{ticker}}",
+  "price": {{close}},
+  "amount": 0.001
+}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Section -->
+        <div class="test-section">
+            <h2>🧪 웹훅 테스트</h2>
+            <div class="test-controls">
+                <select id="test-action">
+                    <option value="buy">BUY</option>
+                    <option value="sell">SELL</option>
+                    <option value="close">CLOSE</option>
+                </select>
+                <input type="text" id="test-symbol" placeholder="Symbol (예: BTC_USDT)" value="BTC_USDT">
+                <input type="number" id="test-amount" placeholder="Amount" value="0.0001" step="0.0001">
+            </div>
+            <button class="test-btn" onclick="testWebhook()">테스트 신호 보내기</button>
+        </div>
+        
+        <!-- Logs -->
+        <div class="logs">
+            <h2>📋 실시간 로그</h2>
+            <div class="log-container" id="logs">
+                <div class="log-entry info">시스템 시작됨...</div>
+            </div>
         </div>
     </div>
     
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
-        const logs = document.getElementById('logs');
+        let signalCount = 0;
+        let startTime = Date.now();
         
-        // WebSocket 연결
-        socket.on('connect', () => {
-            addLog('✅ Connected to server');
-            document.getElementById('status').className = 'status online';
-            document.getElementById('status').textContent = '● Online';
-        });
+        // 페이지 로드시 초기화
+        window.onload = async function() {
+            updateWebhookUrl();
+            updateStatus();
+            setInterval(updateUptime, 1000);
+            setInterval(updateStatus, 30000); // 30초마다 상태 업데이트
+        };
         
-        socket.on('disconnect', () => {
-            addLog('❌ Disconnected from server');
-            document.getElementById('status').className = 'status offline';
-            document.getElementById('status').textContent = '● Offline';
-        });
-        
-        // 거래 신호 수신
-        socket.on('signal', (data) => {
-            addLog(`📊 Signal: ${data.signal.action} ${data.signal.symbol}`);
-            updateStats();
-        });
-        
-        socket.on('trade', (data) => {
-            addLog(`💰 Trade executed: ${data.result.orderId}`);
-            updateStats();
-        });
-        
-        // 구독
-        socket.emit('subscribe', { room: 'trading' });
-        
-        // 로그 추가
-        function addLog(message) {
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logs.appendChild(entry);
-            logs.scrollTop = logs.scrollHeight;
-            
-            // 최대 100개 로그 유지
-            while (logs.children.length > 100) {
-                logs.removeChild(logs.firstChild);
-            }
+        // Webhook URL 표시
+        function updateWebhookUrl() {
+            const url = window.location.origin + '/webhook';
+            document.getElementById('webhook-url').textContent = url;
         }
         
-        // 통계 업데이트
-        async function updateStats() {
-            try {
-                const response = await fetch('/api/status/engine');
-                const data = await response.json();
+        // URL 복사
+        function copyWebhookUrl() {
+            const url = document.getElementById('webhook-url').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                addLog('Webhook URL이 클립보드에 복사되었습니다', 'success');
                 
-                document.getElementById('positions').textContent = data.positions || 0;
-                document.getElementById('engine').textContent = data.active ? 'Active' : 'Stopped';
+                // 버튼 텍스트 임시 변경
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✓ 복사됨!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+        
+        // 상태 업데이트
+        async function updateStatus() {
+            try {
+                // 서버 상태 확인
+                const statusResponse = await fetch('/api/status');
+                const status = await statusResponse.json();
+                
+                // 설정 상태 확인
+                const configResponse = await fetch('/api/config');
+                const config = await configResponse.json();
+                
+                // API 상태 아이콘 업데이트
+                const apiIcon = document.getElementById('api-status');
+                if (status.gateio === 'connected') {
+                    apiIcon.className = 'config-icon ok';
+                    apiIcon.textContent = '✓';
+                } else if (status.gateio === 'not_configured') {
+                    apiIcon.className = 'config-icon warning';
+                    apiIcon.textContent = '!';
+                    document.getElementById('alert').style.display = 'block';
+                } else {
+                    apiIcon.className = 'config-icon error';
+                    apiIcon.textContent = '✗';
+                }
+                
+                // Webhook 상태 아이콘 업데이트
+                const webhookIcon = document.getElementById('webhook-status');
+                if (config.webhook.secretConfigured) {
+                    webhookIcon.className = 'config-icon ok';
+                    webhookIcon.textContent = '✓';
+                } else {
+                    webhookIcon.className = 'config-icon warning';
+                    webhookIcon.textContent = '!';
+                }
+                
+                // 서버 상태 아이콘은 항상 OK (접속 가능하면)
+                document.getElementById('server-status').className = 'config-icon ok';
+                
             } catch (error) {
-                console.error('Stats update error:', error);
+                console.error('Status update error:', error);
+                document.getElementById('status').textContent = '● OFFLINE';
+                document.getElementById('status').className = 'status-badge offline';
             }
         }
         
         // Uptime 업데이트
-        async function updateUptime() {
-            try {
-                const response = await fetch('/api/status/system');
-                const data = await response.json();
-                
-                const uptime = data.uptime;
-                const hours = Math.floor(uptime / 3600);
-                const minutes = Math.floor((uptime % 3600) / 60);
-                
-                document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
-            } catch (error) {
-                console.error('Uptime update error:', error);
-            }
+        function updateUptime() {
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = uptime % 60;
+            
+            document.getElementById('server-uptime').textContent = 
+                `${hours}시간 ${minutes}분 ${seconds}초`;
         }
         
-        // 웹훅 URL 표시
-        function showWebhookUrl() {
-            const protocol = window.location.protocol;
-            const host = window.location.host;
-            const webhookUrl = `${protocol}//${host}/webhook/tradingview`;
-            document.getElementById('webhookUrl').textContent = webhookUrl;
-        }
-        
-        // 테스트 웹훅
+        // 웹훅 테스트
         async function testWebhook() {
+            const action = document.getElementById('test-action').value;
+            const symbol = document.getElementById('test-symbol').value;
+            const amount = parseFloat(document.getElementById('test-amount').value);
+            
+            const testSignal = {
+                action: action,
+                symbol: symbol,
+                amount: amount,
+                comment: 'Dashboard test signal'
+            };
+            
+            addLog(`테스트 신호 전송: ${action} ${symbol} ${amount}`, 'info');
+            
             try {
-                const response = await fetch('/webhook/test', {
+                const response = await fetch('/webhook', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        action: 'buy',
-                        symbol: 'BTC_USDT',
-                        amount: 0.0001
-                    })
+                    body: JSON.stringify(testSignal)
                 });
                 
                 const result = await response.json();
-                addLog(`✅ Test webhook: ${result.status}`);
-            } catch (error) {
-                addLog(`❌ Test failed: ${error.message}`);
-            }
-        }
-        
-        // 긴급 정지
-        async function emergencyStop() {
-            if (!confirm('Are you sure you want to emergency stop the bot?')) {
-                return;
-            }
-            
-            const token = prompt('Enter admin token:');
-            if (!token) return;
-            
-            try {
-                const response = await fetch('/admin/emergency-stop', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': token
-                    }
-                });
                 
-                const result = await response.json();
-                addLog(`🛑 Emergency stop: ${result.status}`);
+                if (result.status === 'success') {
+                    addLog(`✅ 테스트 성공: ${JSON.stringify(result.result)}`, 'success');
+                    signalCount++;
+                    document.getElementById('signals-today').textContent = signalCount;
+                    updateLastActivity(action, symbol);
+                } else {
+                    addLog(`❌ 테스트 실패: ${result.message}`, 'error');
+                }
             } catch (error) {
-                addLog(`❌ Emergency stop failed: ${error.message}`);
+                addLog(`❌ 오류: ${error.message}`, 'error');
             }
         }
         
-        // 초기화
-        showWebhookUrl();
-        updateStats();
-        updateUptime();
+        // 마지막 활동 업데이트
+        function updateLastActivity(action, symbol) {
+            document.getElementById('last-activity').textContent = `${action.toUpperCase()} ${symbol}`;
+            document.getElementById('last-activity-time').textContent = new Date().toLocaleTimeString();
+        }
         
-        // 주기적 업데이트
-        setInterval(updateStats, 5000);
-        setInterval(updateUptime, 60000);
+        // 로그 추가
+        function addLog(message, type = 'info') {
+            const logsContainer = document.getElementById('logs');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            logsContainer.appendChild(logEntry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+            
+            // 최대 100개 로그 유지
+            while (logsContainer.children.length > 100) {
+                logsContainer.removeChild(logsContainer.firstChild);
+            }
+        }
+        
+        // 페이지 로드시 환영 메시지
+        addLog('Gate.io Trading Bot Dashboard 로드됨', 'success');
+        addLog('서버 상태를 확인하는 중...', 'info');
     </script>
 </body>
 </html>
