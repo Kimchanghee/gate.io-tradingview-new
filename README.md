@@ -1,38 +1,26 @@
-# AI Studio Gemini App Proxy Server
+# Gate.io TradingView Trading Bot
 
-This nodejs proxy server lets you run your AI Studio Gemini application unmodified, without exposing your API key in the frontend code.
+자동화된 Gate.io 거래 봇 - TradingView 웹훅 신호를 받아 자동으로 거래를 실행합니다.
 
+## 🚀 주요 기능
 
-## Instructions
+- TradingView 알림을 통한 자동 거래
+- Gate.io 현물 거래 지원
+- 실시간 웹소켓 모니터링
+- 리스크 관리 시스템
+- 관리자 대시보드
+- Telegram/Discord 알림
+- 거래 로그 및 통계
 
-**Prerequisites**:
-- [Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)
-- (Optional) Gemini API Key
+## 📋 요구사항
 
-1. Download or copy the files of your AI Studio app into this directory at the root level.
-2. If your app calls the Gemini API, create a Secret for your API key:
-     ```
-     echo -n "${GEMINI_API_KEY}" | gcloud secrets create gemini_api_key --data-file=-
-     ```
+- Node.js 14.0 이상
+- Gate.io API 키 (거래 권한 필요)
+- TradingView 계정 (Pro 이상 권장)
 
-3.  Deploy to Cloud Run (optionally including API key):
-    ```
-    gcloud run deploy my-app --source=. --update-secrets=GEMINI_API_KEY=gemini_api_key:latest
-    ```
+## 🛠️ 설치
 
-## Persisting admin data on Google Cloud
-
-The server keeps track of generated webhook URLs as well as the lists of pending, approved and denied users. By default this
-state is written to `data/state.json` inside the container, which is ephemeral on platforms such as Cloud Run. To avoid losing
-administrative data after deployments configure a Google Cloud Storage bucket and provide the following environment variables
-when deploying:
-
-- `STATE_STORAGE_BUCKET` (or `GCS_BUCKET` / `PERSISTENCE_BUCKET`): name of the bucket where the state file should live.
-- `STATE_STORAGE_OBJECT` (optional): object path to use inside the bucket. Defaults to `state.json`.
-- `STATE_STORAGE_PROJECT` (optional): overrides the project id if it cannot be inferred from the environment.
-
-With these variables set the application will read and write the persistent state from Cloud Storage instead of the local file
-system, so webhook URLs and user approval queues survive new deployments. The server obtains access tokens from the Google
-Cloud metadata server, so ensure the Cloud Run service account has `storage.objects.get` and `storage.objects.create`
-permissions on the target bucket. Local file storage continues to be used automatically when no bucket is configured, allowing
-local development without additional setup.
+1. 저장소 클론
+```bash
+git clone https://github.com/Kimchanghee/gate.io-tradingview-new.git
+cd gate.io-tradingview-new
