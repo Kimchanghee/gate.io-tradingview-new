@@ -184,6 +184,8 @@ export const ja = {
   approvedStrategiesLabel: "承認された戦略",
   accessKeyLabel: "アクセスキー",
   uidAuthRequired: "UID認証を完了してください。",
+  uidNotFound: "登録されたUID情報が見つかりません。再度ログインするか登録申請をやり直してください。",
+  uidReauthRequired: "UID認証セッションの有効期限が切れました。もう一度ログインしてください。",
 
   // Webhook とシグナル
   webhookIndicatorHint: "個人用Webhookは選択した戦略だけを配信します。TradingViewでそのままご利用ください。",

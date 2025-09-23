@@ -184,6 +184,8 @@ export const en = {
   approvedStrategiesLabel: "Approved strategies",
   accessKeyLabel: "Access key",
   uidAuthRequired: "Please complete UID verification first.",
+  uidNotFound: "We couldn't find your UID record. Please sign in again or submit a new registration request.",
+  uidReauthRequired: "Your UID session has expired. Please sign in again to refresh your access.",
 
   // Webhook & signals
   webhookIndicatorHint: "Your personal webhook only delivers the strategies you selected. Use it directly inside TradingView.",

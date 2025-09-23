@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from './Card';
 import { useAppContext } from '../contexts/AppContext';
 
@@ -19,7 +19,7 @@ interface SignalItem {
 type SignalError = 'none' | 'forbidden' | 'generic';
 
 const SignalFeedCard: React.FC = () => {
-  const { state, translate } = useAppContext();
+  const { state, translate, dispatch } = useAppContext();
   const [signals, setSignals] = useState<SignalItem[]>([]);
   const [error, setError] = useState<SignalError>('none');
 
@@ -28,6 +28,25 @@ const SignalFeedCard: React.FC = () => {
   const uidReady = state.user.isLoggedIn;
   const isApproved = state.user.status === 'approved';
   const allowedStrategies = useMemo(() => state.user.approvedStrategies || [], [state.user.approvedStrategies]);
+
+  const handleUserAccessGuard = useCallback(
+    (code?: string): SignalError => {
+      switch (code) {
+        case 'uid_not_found':
+        case 'uid_credentials_mismatch':
+          dispatch({ type: 'RESET_USER' });
+          setSignals([]);
+          return 'forbidden';
+        case 'uid_not_approved':
+        case 'missing_credentials':
+          setSignals([]);
+          return 'forbidden';
+        default:
+          return 'none';
+      }
+    },
+    [dispatch, setSignals],
+  );
 
   useEffect(() => {
     if (!uid || !accessKey || !isApproved) {
@@ -40,13 +59,33 @@ const SignalFeedCard: React.FC = () => {
       try {
         const url = `/api/user/signals?uid=${encodeURIComponent(uid)}&key=${encodeURIComponent(accessKey)}`;
         const res = await fetch(url);
+        const raw = await res.text();
+        let data: any = null;
+        if (raw) {
+          try {
+            data = JSON.parse(raw);
+          } catch (parseError) {
+            console.error('Failed to parse signals payload', parseError);
+          }
+        }
         if (res.status === 403) {
-          if (!stopped) setError('forbidden');
+          const guardResult = handleUserAccessGuard(data?.code);
+          if (!stopped && guardResult !== 'none') {
+            setError(guardResult);
+          }
+          if (!stopped && guardResult === 'none') {
+            setError('forbidden');
+          }
           return;
         }
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!stopped && Array.isArray(data.signals) && data.signals.length) {
+        if (!res.ok) {
+          if (!stopped) setError('generic');
+          return;
+        }
+        if (!stopped) {
+          setError('none');
+        }
+        if (!stopped && Array.isArray(data?.signals) && data.signals.length) {
           setSignals((prev) => {
             const merged = [...data.signals.slice().reverse(), ...prev];
             return merged.slice(0, 100);
@@ -63,7 +102,7 @@ const SignalFeedCard: React.FC = () => {
       stopped = true;
       window.clearInterval(id);
     };
-  }, [uid, accessKey, isApproved]);
+  }, [accessKey, handleUserAccessGuard, isApproved, uid]);
 
   const errorMessage = error === 'forbidden'
     ? translate('signalErrorForbidden')

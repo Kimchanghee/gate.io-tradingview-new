@@ -491,21 +491,67 @@ app.get('/api/user/status', (req, res) => {
   });
 });
 
-const verifyUserAccess = (uid, key) => {
-  if (!uid || !key) return null;
-  const record = users.get(uid);
-  if (!record || record.status !== 'approved') return null;
-  if (record.accessKey !== key) return null;
-  return record;
+const normalizeAccessValue = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const resolveUserAccess = (uid, key) => {
+  const normalizedUid = normalizeAccessValue(uid);
+  const normalizedKey = normalizeAccessValue(key);
+
+  if (!normalizedUid || !normalizedKey) {
+    return {
+      user: null,
+      status: 400,
+      code: 'missing_credentials',
+      message: 'Missing credentials.',
+    };
+  }
+
+  const record = users.get(normalizedUid);
+  if (!record) {
+    return {
+      user: null,
+      status: 403,
+      code: 'uid_not_found',
+      message: 'UID is not registered.',
+    };
+  }
+
+  if (record.status !== 'approved') {
+    return {
+      user: null,
+      status: 403,
+      code: 'uid_not_approved',
+      message: 'UID is not approved yet.',
+    };
+  }
+
+  if (record.accessKey !== normalizedKey) {
+    return {
+      user: null,
+      status: 403,
+      code: 'uid_credentials_mismatch',
+      message: 'Invalid credentials.',
+    };
+  }
+
+  return {
+    user: record,
+    status: 200,
+    code: null,
+    message: null,
+  };
 };
 
 app.get('/api/user/signals', (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   const key = req.query.key ? String(req.query.key) : '';
-  const user = verifyUserAccess(uid, key);
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
+  const access = resolveUserAccess(uid, key);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+  const user = access.user;
   const signalsForUser = userSignals.get(uid) ?? [];
   const payload = signalsForUser.slice();
   userSignals.set(uid, []);
@@ -515,10 +561,13 @@ app.get('/api/user/signals', (req, res) => {
 app.get('/api/positions', async (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   const key = req.query.key ? String(req.query.key) : '';
-  const user = verifyUserAccess(uid, key);
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
+  const access = resolveUserAccess(uid, key);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+  const user = access.user;
   const network = resolveNetworkValue(req.query.network);
   const connection = getUserConnectionForNetwork(uid, network);
   if (!connection || !connection.apiKey || !connection.apiSecret) {
@@ -569,14 +618,20 @@ app.get('/api/positions', async (req, res) => {
 
 app.post('/api/connect', async (req, res) => {
   const { uid, accessKey, apiKey, apiSecret, isTestnet, network } = req.body || {};
-  if (!uid || !accessKey || !apiKey || !apiSecret) {
-    return res.status(400).json({ ok: false, message: 'Missing credentials.' });
+  if (!apiKey || !apiSecret) {
+    return res
+      .status(400)
+      .json({ ok: false, message: 'Missing credentials.', code: 'missing_credentials' });
   }
 
-  const user = verifyUserAccess(String(uid), String(accessKey));
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'UID is not approved yet.' });
+  const access = resolveUserAccess(uid, accessKey);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+
+  const user = access.user;
 
   const networkKey = resolveNetworkValue(
     typeof isTestnet === 'boolean' ? isTestnet : network,
@@ -708,10 +763,13 @@ app.post('/api/disconnect', (req, res) => {
 app.get('/api/accounts/all', async (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   const key = req.query.key ? String(req.query.key) : '';
-  const user = verifyUserAccess(uid, key);
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
+  const access = resolveUserAccess(uid, key);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+  const user = access.user;
 
   const network = resolveNetworkValue(req.query.network);
   const connection = getUserConnectionForNetwork(uid, network);
@@ -755,10 +813,13 @@ app.get('/api/accounts/all', async (req, res) => {
 
 app.post('/api/trading/auto', async (req, res) => {
   const { uid, accessKey, enabled } = req.body || {};
-  const user = verifyUserAccess(String(uid), String(accessKey));
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
+  const access = resolveUserAccess(uid, accessKey);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+  const user = access.user;
   user.autoTradingEnabled = Boolean(enabled);
   user.updatedAt = nowIso();
   users.set(user.uid, user);
@@ -853,10 +914,13 @@ app.post('/api/metrics/visit', async (req, res) => {
 
 app.post('/api/positions/close', (req, res) => {
   const { uid, accessKey, contract, network } = req.body || {};
-  const user = verifyUserAccess(String(uid), String(accessKey));
-  if (!user) {
-    return res.status(403).json({ ok: false, message: 'Invalid credentials.' });
+  const access = resolveUserAccess(uid, accessKey);
+  if (!access.user) {
+    return res
+      .status(access.status)
+      .json({ ok: false, message: access.message, code: access.code });
   }
+  const user = access.user;
   if (!contract) {
     return res.status(400).json({ ok: false, message: 'Contract is required.' });
   }

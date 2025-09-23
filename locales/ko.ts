@@ -184,6 +184,8 @@ export const ko = {
   approvedStrategiesLabel: "승인된 전략",
   accessKeyLabel: "접근 키",
   uidAuthRequired: "UID로 인증을 완료해 주세요.",
+  uidNotFound: "등록된 UID 정보를 찾을 수 없습니다. 다시 로그인하거나 등록을 요청해 주세요.",
+  uidReauthRequired: "UID 인증 정보가 만료되었습니다. 다시 로그인해 주세요.",
 
   // 웹훅 및 신호 안내
   webhookIndicatorHint: "개인 전용 웹훅은 선택한 전략의 신호만 전달되며 TradingView에서 그대로 사용하면 됩니다.",

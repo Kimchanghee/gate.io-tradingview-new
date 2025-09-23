@@ -73,6 +73,40 @@ const ApiSettingsCard: React.FC = () => {
   const accessKey = state.user.accessKey || '';
   const autoTradingEnabled = state.user.autoTradingEnabled;
 
+  const markConnectionInactive = (shouldResetUser = false) => {
+    setIsConnected(false);
+    setAccounts(null);
+    setApiBaseUrl(null);
+    setAutoTradingMessage('');
+    if (shouldResetUser) {
+      dispatch({ type: 'RESET_USER' });
+    }
+    dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
+  };
+
+  const handleUserAccessGuard = (code?: string) => {
+    switch (code) {
+      case 'uid_not_found':
+        markConnectionInactive(true);
+        setConnectionStatus(translate('uidNotFound'));
+        return true;
+      case 'uid_not_approved':
+        markConnectionInactive(false);
+        setConnectionStatus(translate('uidPendingNotice'));
+        return true;
+      case 'uid_credentials_mismatch':
+        markConnectionInactive(true);
+        setConnectionStatus(translate('uidReauthRequired'));
+        return true;
+      case 'missing_credentials':
+        markConnectionInactive(false);
+        setConnectionStatus(translate('uidAuthRequired'));
+        return true;
+      default:
+        return false;
+    }
+  };
+
   const handleConnect = async () => {
     const requestedNetwork = state.network;
     if (!uidReady) {
@@ -112,9 +146,11 @@ const ApiSettingsCard: React.FC = () => {
 
       if (!response.ok) {
         let message = translate('connectionFailed');
+        let code: string | undefined;
         if (raw) {
           try {
             const parsed = JSON.parse(raw);
+            code = parsed?.code;
             if (parsed?.message) {
               message = parsed.message;
             }
@@ -125,17 +161,17 @@ const ApiSettingsCard: React.FC = () => {
             message = raw;
           }
         }
-        setIsConnected(false);
+        if (code && handleUserAccessGuard(code)) {
+          return;
+        }
+        markConnectionInactive(false);
         setConnectionStatus(message);
-        setApiBaseUrl(null);
-        dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
         return;
       }
 
       if (!raw) {
-        setIsConnected(false);
+        markConnectionInactive(false);
         setConnectionStatus(translate('connectionError'));
-        setApiBaseUrl(null);
         return;
       }
 
@@ -144,20 +180,21 @@ const ApiSettingsCard: React.FC = () => {
         result = JSON.parse(raw);
       } catch (parseError) {
         console.error('API 연결 응답 파싱 실패:', parseError);
-        setIsConnected(false);
+        markConnectionInactive(false);
         setConnectionStatus(translate('connectionError'));
         return;
       }
 
       if (!result.ok) {
-        setIsConnected(false);
+        if (handleUserAccessGuard(result?.code)) {
+          return;
+        }
         let message = result?.message || translate('connectionFailed');
         if (result?.code === 'invalid_credentials') {
           message = `${message} ${translate('gateCredentialErrorHint')}`;
         }
+        markConnectionInactive(false);
         setConnectionStatus(message);
-        setApiBaseUrl(null);
-        dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
         return;
       }
 
@@ -193,10 +230,8 @@ const ApiSettingsCard: React.FC = () => {
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: true, isConnecting: false } });
     } catch (error) {
       console.error('API 연결 실패:', error);
-      setIsConnected(false);
+      markConnectionInactive(false);
       setConnectionStatus(translate('connectionError'));
-      setApiBaseUrl(null);
-      dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
     } finally {
       setIsConnecting(false);
     }
@@ -212,15 +247,12 @@ const ApiSettingsCard: React.FC = () => {
         console.error('Failed to notify backend about disconnect', error);
       });
     }
-    setIsConnected(false);
+    markConnectionInactive(false);
     setConnectionStatus('');
-    setAccounts(null);
     setApiKey('');
     setApiSecret('');
-    setApiBaseUrl(null);
     dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: false } });
     setAutoTradingMessage('');
-    dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
   };
 
   const refreshAccounts = async () => {
@@ -235,15 +267,20 @@ const ApiSettingsCard: React.FC = () => {
 
       if (!response.ok) {
         let message = translate('connectionError');
+        let code: string | undefined;
         if (raw) {
           try {
             const parsed = JSON.parse(raw);
             if (parsed?.message) {
               message = parsed.message;
             }
+            code = parsed?.code;
           } catch {
             message = raw;
           }
+        }
+        if (code && handleUserAccessGuard(code)) {
+          return;
         }
         setConnectionStatus(message);
         return;
@@ -288,14 +325,26 @@ const ApiSettingsCard: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uid, accessKey, enabled: nextState }),
       });
-      const result = await response.json();
-      if (response.ok && typeof result.autoTradingEnabled === 'boolean') {
+      const raw = await response.text();
+      let result: any = null;
+      if (raw) {
+        try {
+          result = JSON.parse(raw);
+        } catch (parseError) {
+          console.error('자동 거래 응답 파싱 실패', parseError);
+        }
+      }
+      if (result?.code && handleUserAccessGuard(result.code)) {
+        setAutoTradingMessage('');
+        return;
+      }
+      if (response.ok && typeof result?.autoTradingEnabled === 'boolean') {
         dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
         setAutoTradingMessage(
           result.autoTradingEnabled ? translate('activated') : translate('deactivated'),
         );
       } else {
-        setAutoTradingMessage(result?.message || translate('connectionError'));
+        setAutoTradingMessage(result?.message || raw || translate('connectionError'));
       }
     } catch (error) {
       console.error('자동 거래 상태 변경 실패', error);
