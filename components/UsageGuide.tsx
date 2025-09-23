@@ -10,6 +10,11 @@ type GuideContent = {
   siteHighlights?: string[];
   steps: string[];
   tips?: string[];
+  apiConnectionTitle?: string;
+  apiConnectionIntro?: string;
+  apiConnectionSteps?: string[];
+  apiConnectionNotesTitle?: string;
+  apiConnectionNotes?: string[];
 };
 
 const guides: Record<string, GuideContent> = {
@@ -33,6 +38,20 @@ const guides: Record<string, GuideContent> = {
       '사용자 화면에서는 전략이나 웹훅을 따로 선택하지 않습니다. 승인된 전략은 관리자 페이지에서 할당됩니다.',
       '다른 전략을 이용하고 싶다면 관리자에게 문의해 승인 전략을 조정해 달라고 요청하세요.',
     ],
+    apiConnectionTitle: 'API 키 연결 가이드',
+    apiConnectionIntro:
+      '메인넷과 테스트넷은 서로 다른 Gate.io 환경이며 API 키도 각각 발급해야 합니다. 아래 순서를 따라 원하는 네트워크에 연결하세요.',
+    apiConnectionSteps: [
+      'Gate.io 본계정에서 메인넷 API 키를 생성하고 Futures 읽기/거래, 현물 조회 권한을 활성화합니다. 테스트 거래를 하려면 testnet.gateio.ws에서 별도의 테스트넷 API 키를 발급하세요.',
+      '연결하려는 환경(메인넷 또는 테스트넷)을 먼저 상단 네트워크 토글에서 선택합니다.',
+      '선택한 네트워크에 맞는 API Key와 Secret을 입력한 뒤 “API 연결”을 누릅니다.',
+      '키와 네트워크가 맞지 않으면 시스템이 자동으로 전환하지만, 연결 후 상태 메시지와 API 엔드포인트(https://api.gateio.ws 또는 https://fx-api-testnet.gateio.ws)를 확인해 주세요.',
+    ],
+    apiConnectionNotesTitle: '연결 확인 및 오류 해결',
+    apiConnectionNotes: [
+      '403 응답이나 “invalid_credentials” 코드가 보이면 키 권한(Futures 읽기/거래 등)과 네트워크 짝이 올바른지 다시 확인하세요.',
+      '포지션/계정 조회가 404 “no_connection”으로 나오면 아직 API 키가 저장되지 않은 상태입니다. 위 절차대로 다시 연결하거나 UID 접근 키 승인을 확인하세요.',
+    ],
   },
   en: {
     title: 'Usage Guide',
@@ -54,6 +73,20 @@ const guides: Record<string, GuideContent> = {
       'End users do not configure strategies or webhooks here. The admin assigns approved strategies after reviewing your request.',
       'If you need different strategies later, contact the admin team to update your approvals.',
     ],
+    apiConnectionTitle: 'API Connection Checklist',
+    apiConnectionIntro:
+      'Gate.io Mainnet and Testnet use separate API keys and endpoints. Follow these steps to connect to the environment you need.',
+    apiConnectionSteps: [
+      'Generate a Mainnet API key inside your live Gate.io account with Futures read/write and Spot read permissions. For paper trading visit testnet.gateio.ws and create a dedicated Testnet API key.',
+      'Select the target environment (Mainnet or Testnet) from the header toggle before pressing “Connect API.”',
+      'Enter the API Key and Secret for that environment and click “Connect API.”',
+      'If the key and network do not match the backend will switch automatically, but always double-check the status message and endpoint (https://api.gateio.ws for Mainnet, https://fx-api-testnet.gateio.ws for Testnet).',
+    ],
+    apiConnectionNotesTitle: 'Verify the result & troubleshoot',
+    apiConnectionNotes: [
+      'A 403 response or “invalid_credentials” code usually means the key permissions are incomplete or the key/network pair does not match. Update the key and try again.',
+      'Positions or account lookups returning 404 “no_connection” indicate no API key has been stored yet. Repeat the connection steps or confirm that your UID access key is approved.',
+    ],
   },
   ja: {
     title: 'ご利用ガイド',
@@ -74,6 +107,20 @@ const guides: Record<string, GuideContent> = {
     tips: [
       'ユーザー画面で戦略や Webhook を選択する必要はありません。承認後の戦略は管理者が割り当てます。',
       '別の戦略を希望する場合は管理者に連絡し、承認内容の変更を依頼してください。',
+    ],
+    apiConnectionTitle: 'APIキー接続ガイド',
+    apiConnectionIntro:
+      'メインネットとテストネットは別環境であり、APIキーとエンドポイントも異なります。以下の手順で正しい環境へ接続してください。',
+    apiConnectionSteps: [
+      'Gate.io本番アカウントでメインネット用APIキーを作成し、先物の読み取り/取引、現物残高閲覧など必要な権限を有効にします。テスト取引を行う場合は testnet.gateio.ws でテストネット用APIキーを別途発行します。',
+      '接続したい環境（メインネットまたはテストネット）を画面上部のネットワーク切り替えで先に選択します。',
+      '選択したネットワークに対応するAPI KeyとSecretを入力し、「API接続」をクリックします。',
+      'キーとネットワークが一致しない場合はシステムが自動で正しいネットワークへ切り替えますが、接続後のステータスメッセージとAPIエンドポイント（メインネット: https://api.gateio.ws、テストネット: https://fx-api-testnet.gateio.ws）を必ず確認してください。',
+    ],
+    apiConnectionNotesTitle: '接続結果とエラーの確認',
+    apiConnectionNotes: [
+      '403 応答や「invalid_credentials」というコードが表示される場合、権限が不足しているかキーとネットワークの組み合わせが間違っています。権限を再確認し、正しい環境で再接続してください。',
+      'ポジションや口座の取得が404「no_connection」となる場合、まだAPIキーが保存されていません。上記手順で再接続するか、UIDアクセスキーが承認されているかを確認してください。',
     ],
   },
 };
@@ -111,6 +158,34 @@ const UsageGuide: React.FC = () => {
             {guide.tips.map((tip, index) => (
               <p key={index}>• {tip}</p>
             ))}
+          </div>
+        )}
+
+        {guide.apiConnectionTitle && (
+          <div className="space-y-3 bg-black/30 border border-gate-primary/30 rounded-lg p-4">
+            <h3 className="text-sm font-semibold text-gate-primary">{guide.apiConnectionTitle}</h3>
+            {guide.apiConnectionIntro && <p className="text-xs text-gray-300">{guide.apiConnectionIntro}</p>}
+            {guide.apiConnectionSteps && guide.apiConnectionSteps.length > 0 && (
+              <ol className="list-decimal list-inside space-y-1 text-xs text-gray-200">
+                {guide.apiConnectionSteps.map((step, index) => (
+                  <li key={index}>{step}</li>
+                ))}
+              </ol>
+            )}
+            {guide.apiConnectionNotes && guide.apiConnectionNotes.length > 0 && (
+              <div className="space-y-2">
+                {guide.apiConnectionNotesTitle && (
+                  <h4 className="text-xs font-semibold text-gate-primary">
+                    {guide.apiConnectionNotesTitle}
+                  </h4>
+                )}
+                <ul className="list-disc list-inside space-y-1 text-xs text-gray-300">
+                  {guide.apiConnectionNotes.map((note, index) => (
+                    <li key={index}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
