@@ -45,14 +45,14 @@ const guides: Record<string, GuideContent> = {
       'UID 로그인 버튼을 눌러 접근 키(Access Key)가 화면에 표시되는지 확인합니다. 키가 보이지 않거나 만료되었다면 다시 로그인해 갱신하세요.',
       'Gate.io 본계정에서 메인넷 API 키를 생성하고 Futures 읽기/거래, 현물 조회 권한을 활성화합니다. 테스트 거래를 하려면 testnet.gateio.ws에서 별도의 테스트넷 API 키를 발급하세요.',
       '연결하려는 환경(메인넷 또는 테스트넷)을 먼저 상단 네트워크 토글에서 선택합니다.',
-      '선택한 네트워크에 맞는 API Key와 Secret을 입력한 뒤 “API 연결”을 누릅니다.',
+      '선택한 네트워크에 맞는 API Key와 Secret을 입력한 뒤 "API 연결"을 누릅니다.',
       '키와 네트워크가 맞지 않으면 시스템이 자동으로 감지해 다른 네트워크로 전환합니다. 연결 후 상태 메시지와 API 엔드포인트(https://api.gateio.ws 또는 https://fx-api-testnet.gateio.ws)를 확인해 주세요.',
     ],
     apiConnectionNotesTitle: '연결 확인 및 오류 해결',
     apiConnectionNotes: [
       '403 응답에서 uid_not_found, uid_credentials_mismatch, missing_credentials 코드가 나타나면 접근 키가 만료되었거나 승인되지 않은 상태입니다. UID 로그인 버튼을 다시 눌러 접근 키를 갱신하고 필요하면 관리자에게 재발급을 요청하세요.',
-      '403 응답에서 “invalid_credentials” 코드가 보이면 Gate.io API 키 권한(Futures 읽기/거래 등)과 네트워크 짝이 올바른지 다시 확인하세요.',
-      '포지션/계정 조회가 404 “no_connection”으로 나오면 아직 API 키가 저장되지 않은 상태입니다. 위 절차대로 다시 연결하거나 UID 접근 키 승인을 확인하세요.',
+      '403 응답에서 "invalid_credentials" 코드가 보이면 Gate.io API 키 권한(Futures 읽기/거래 등)과 네트워크 짝이 올바른지 다시 확인하세요.',
+      '포지션/계정 조회가 404 "no_connection"으로 나오면 아직 API 키가 저장되지 않은 상태입니다. 위 절차대로 다시 연결하거나 UID 접근 키 승인을 확인하세요.',
     ],
   },
   en: {
@@ -67,8 +67,8 @@ const guides: Record<string, GuideContent> = {
       'The admin console manages UID approvals, strategy distribution, and real-time operational logs.',
     ],
     steps: [
-      'Verify the language and network (Mainnet or Testnet), then enter your UID and press “UID Login.”',
-      'Hit “Register UID” to send the request to the admins. They review it within three hours and notify you once approved.',
+      'Verify the language and network (Mainnet or Testnet), then enter your UID and press "UID Login."',
+      'Hit "Register UID" to send the request to the admins. They review it within three hours and notify you once approved.',
       'After approval you can connect the API and monitor live signals. Webhook delivery is handled from the admin console.',
     ],
     tips: [
@@ -79,17 +79,17 @@ const guides: Record<string, GuideContent> = {
     apiConnectionIntro:
       'Before connecting, confirm that the UID login card shows your latest Access Key. Gate.io Mainnet and Testnet run on separate credentials and endpoints, so use the key that matches the network.',
     apiConnectionSteps: [
-      'Press “UID Login” to refresh your Access Key and make sure it is visible on the UID card. If the code is missing or expired you must log in again before connecting.',
+      'Press "UID Login" to refresh your Access Key and make sure it is visible on the UID card. If the code is missing or expired you must log in again before connecting.',
       'Generate a Mainnet API key inside your live Gate.io account with Futures read/write and Spot read permissions. For paper trading visit testnet.gateio.ws and create a dedicated Testnet API key.',
-      'Select the target environment (Mainnet or Testnet) from the header toggle before pressing “Connect API.”',
-      'Enter the API Key and Secret for that environment and click “Connect API.”',
+      'Select the target environment (Mainnet or Testnet) from the header toggle before pressing "Connect API."',
+      'Enter the API Key and Secret for that environment and click "Connect API."',
       'If the key belongs to the opposite environment the backend will auto-detect it and switch networks. After the request completes, confirm the status message and API endpoint (https://api.gateio.ws or https://fx-api-testnet.gateio.ws) to ensure you landed on the right network.',
     ],
     apiConnectionNotesTitle: 'Verify the result & troubleshoot',
     apiConnectionNotes: [
-      'A 403 response with uid_not_found, uid_credentials_mismatch, or missing_credentials means the Access Key on file is missing or expired. Press “UID Login” to refresh it or ask the admin to reissue your portal key.',
-      'A 403 response with “invalid_credentials” points to a Gate.io API issue—double-check the key permissions (Futures read/trade, etc.) and that you chose the correct network.',
-      'Positions or account lookups returning 404 “no_connection” indicate no API key has been stored yet. Repeat the connection steps or confirm that your UID Access Key is approved.',
+      'A 403 response with uid_not_found, uid_credentials_mismatch, or missing_credentials means the Access Key on file is missing or expired. Press "UID Login" to refresh it or ask the admin to reissue your portal key.',
+      'A 403 response with "invalid_credentials" points to a Gate.io API issue—double-check the key permissions (Futures read/trade, etc.) and that you chose the correct network.',
+      'Positions or account lookups returning 404 "no_connection" indicate no API key has been stored yet. Repeat the connection steps or confirm that your UID Access Key is approved.',
     ],
   },
   ja: {
