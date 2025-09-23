@@ -473,18 +473,53 @@ app.post('/api/register', async (req, res) => {
 const toNamedStrategies = (ids = []) =>
   ids.map((id) => ({ id, name: strategies.get(id)?.name ?? id }));
 
-app.get('/api/user/status', (req, res) => {
+app.get('/api/user/status', async (req, res) => {
   const uid = req.query.uid ? String(req.query.uid) : '';
   if (!uid) {
     return res.status(400).json({ status: 'not_registered' });
   }
+
   const record = users.get(uid);
   if (!record) {
     return res.json({ status: 'not_registered' });
   }
+
+  let accessKey =
+    typeof record.accessKey === 'string' && record.accessKey.trim().length > 0
+      ? record.accessKey.trim()
+      : null;
+
+  let recordMutated = false;
+  let issuedNewKey = false;
+
+  if (accessKey && accessKey !== record.accessKey) {
+    record.accessKey = accessKey;
+    recordMutated = true;
+  }
+
+  if (record.status === 'approved' && !accessKey) {
+    accessKey = randomId('access');
+    record.accessKey = accessKey;
+    record.updatedAt = nowIso();
+    issuedNewKey = true;
+    recordMutated = true;
+  }
+
+  if (recordMutated) {
+    users.set(uid, record);
+    if (issuedNewKey) {
+      addLog('info', `[ACCESS] Issued fresh access key for UID ${uid}.`);
+    }
+    try {
+      await persistState();
+    } catch (error) {
+      console.error('Failed to persist refreshed access key state', error);
+    }
+  }
+
   return res.json({
     status: record.status,
-    accessKey: record.accessKey,
+    accessKey,
     requestedStrategies: toNamedStrategies(record.requestedStrategies),
     approvedStrategies: toNamedStrategies(record.approvedStrategies),
     autoTradingEnabled: Boolean(record.autoTradingEnabled),
@@ -1331,6 +1366,21 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
   };
 
   res.json({ ok: true, delivered: delivery.delivered });
+});
+
+app.get('/service-worker.js', (req, res, next) => {
+  const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.sendFile(serviceWorkerPath, (error) => {
+    if (error) {
+      if (error.code === 'ENOENT') {
+        res.status(404).end();
+        return;
+      }
+      next(error);
+    }
+  });
 });
 
 app.use(express.static(path.join(__dirname, 'dist')));
