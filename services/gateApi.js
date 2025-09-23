@@ -638,12 +638,15 @@ export const fetchGatePositions = async ({ apiKey, apiSecret, isTestnet }) => {
 };
 
 export const fetchGateSnapshot = async ({ apiKey, apiSecret, isTestnet }) => {
-  const accounts = await fetchGateAccounts({ apiKey, apiSecret, isTestnet });
+  const targetIsTestnet = resolveIsTestnet(isTestnet);
+  const network = targetIsTestnet ? 'testnet' : 'mainnet';
+  const baseUrl = getBaseUrl(targetIsTestnet);
+  const accounts = await fetchGateAccounts({ apiKey, apiSecret, isTestnet: targetIsTestnet });
   let positions = [];
   try {
-    positions = await fetchGatePositions({ apiKey, apiSecret, isTestnet });
+    positions = await fetchGatePositions({ apiKey, apiSecret, isTestnet: targetIsTestnet });
   } catch (error) {
     console.error('[Gate.io] Failed to fetch futures positions snapshot:', error?.message || error);
   }
-  return { accounts, positions };
+  return { accounts, positions, network, baseUrl };
 };

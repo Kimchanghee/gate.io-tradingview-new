@@ -45,6 +45,24 @@ interface AdminSignal {
   indicator?: string;
 }
 
+interface AdminWebhookDelivery {
+  id: string;
+  timestamp: string;
+  indicator?: string;
+  symbol?: string;
+  action?: string;
+  side?: string;
+  strategyId?: string;
+  strategyName?: string;
+  delivered: number;
+  recipients: Array<{
+    uid: string;
+    status: string;
+    autoTradingEnabled: boolean;
+    approved: boolean;
+  }>;
+}
+
 interface AdminWebhookInfo {
   url: string;
   secret?: string;
@@ -77,6 +95,7 @@ interface AdminRealtimeMetrics {
       delivered: number;
       strategyId?: string;
       strategyName?: string;
+      recipients?: string[];
     } | null;
   };
   googleSheets: {
@@ -144,6 +163,7 @@ const AdminApp: React.FC = () => {
   const [webhookCopied, setWebhookCopied] = useState(false);
   const [webhookSaving, setWebhookSaving] = useState(false);
   const [metricsState, setMetricsState] = useState<AdminRealtimeMetrics | null>(null);
+  const [webhookDeliveries, setWebhookDeliveries] = useState<AdminWebhookDelivery[]>([]);
 
   const authorized = useMemo(() => Boolean(token), [token]);
   const pendingUsers = useMemo(
@@ -213,6 +233,7 @@ const AdminApp: React.FC = () => {
     setWebhookCopied(false);
     setWebhookSaving(false);
     setMetricsState(null);
+    setWebhookDeliveries([]);
   }, []);
 
   const buildHeaders = useCallback(
@@ -362,6 +383,31 @@ const AdminApp: React.FC = () => {
         return null;
       } finally {
         setWebhookLoading(false);
+      }
+    },
+    [token, buildAdminUrl, buildHeaders, resetAdminState],
+  );
+
+  const fetchWebhookDeliveries = useCallback(
+    async (overrideToken?: string): Promise<void> => {
+      const authToken = overrideToken ?? token;
+      if (!authToken) return;
+      try {
+        const res = await fetch(buildAdminUrl('/webhook/deliveries'), {
+          headers: buildHeaders(authToken),
+        });
+        if (res.status === 401) {
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
+          resetAdminState();
+          return;
+        }
+        if (!res.ok) {
+          return;
+        }
+        const data = await res.json();
+        setWebhookDeliveries(Array.isArray(data.deliveries) ? data.deliveries : []);
+      } catch (err) {
+        console.error(err);
       }
     },
     [token, buildAdminUrl, buildHeaders, resetAdminState],
@@ -643,7 +689,8 @@ const AdminApp: React.FC = () => {
     fetchOverview();
     fetchWebhookInfo();
     fetchMetrics();
-  }, [fetchOverview, fetchWebhookInfo, fetchMetrics]);
+    fetchWebhookDeliveries();
+  }, [fetchOverview, fetchWebhookInfo, fetchMetrics, fetchWebhookDeliveries]);
 
   useEffect(() => {
     if (!token) return;
@@ -665,6 +712,16 @@ const AdminApp: React.FC = () => {
     }, 10000);
     return () => window.clearInterval(id);
   }, [token, fetchMetrics]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchWebhookDeliveries();
+    if (typeof window === 'undefined') return;
+    const id = window.setInterval(() => {
+      fetchWebhookDeliveries();
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [token, fetchWebhookDeliveries]);
 
   useEffect(() => {
     if (token && signalStrategy) {
@@ -920,6 +977,54 @@ const AdminApp: React.FC = () => {
           >
             선택 저장
           </button>
+        </Card>
+
+        <Card title="최근 웹훅 전달 현황" className="space-y-3">
+          <p className="text-sm text-gray-300">
+            TradingView에서 들어온 최신 신호가 어떤 UID로 전달되었는지 확인할 수 있습니다.
+          </p>
+          {webhookDeliveries.length === 0 ? (
+            <div className="text-xs text-gray-400 bg-black/30 border border-gray-700 rounded px-3 py-2">
+              아직 저장된 웹훅 전달 기록이 없습니다. TradingView에서 웹훅을 호출하면 이곳에 표시됩니다.
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+              {webhookDeliveries.map((delivery) => (
+                <div key={delivery.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2 text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-gray-400 gap-1">
+                    <span>{new Date(delivery.timestamp).toLocaleString()}</span>
+                    <span className="text-gray-300">전달 {delivery.delivered}명</span>
+                  </div>
+                  <div className="text-sm font-semibold text-gate-text mt-1">
+                    {(delivery.indicator || delivery.strategyName || delivery.strategyId || '미지정 전략')}{' '}
+                    · {delivery.symbol || '-'} · {(delivery.action || '-').toUpperCase()} {(delivery.side || '-').toUpperCase()}
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {delivery.recipients.length === 0 ? (
+                      <span className="text-xs text-gray-500">승인된 UID가 없어 전달되지 않았습니다.</span>
+                    ) : (
+                      delivery.recipients.map((recipient) => (
+                        <span
+                          key={`${delivery.id}-${recipient.uid}`}
+                          className={`px-2 py-1 text-xs rounded border ${
+                            recipient.approved
+                              ? 'border-gate-primary text-gate-primary bg-gate-primary/5'
+                              : 'border-gray-600 text-gray-300'
+                          }`}
+                        >
+                          UID {recipient.uid}
+                          <span className="ml-1 text-[10px] text-gray-400">({recipient.status})</span>
+                          {recipient.autoTradingEnabled && (
+                            <span className="ml-1 text-[10px] text-green-300">AUTO</span>
+                          )}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card title="트레이딩뷰 웹훅 JSON 예시" className="space-y-3">

@@ -11,6 +11,8 @@ export const ja = {
   apiSecret: "APIシークレット",
   currentNetwork: "現在のネットワーク",
   networkHint: "上部ヘッダーでネットワークを変更できます",
+  connectedNetworkLabel: "接続中のネットワーク",
+  apiBaseUrlLabel: "Gate.io APIエンドポイント",
   networkAutoSwitchedTestnet: "入力されたAPIキーがテストネット用と判定されたため、テストネットへ自動で切り替えました",
   networkAutoSwitchedMainnet: "入力されたAPIキーがメインネット用と判定されたため、メインネットへ自動で切り替えました",
   connect: "API接続",
