@@ -1,32 +1,38 @@
 runtime: nodejs20
+service: gate-io-tradingview-new
 
+# Cloud Run automatically sets PORT env variable
 env: standard
-
-service: gate-bot
 
 automatic_scaling:
   min_instances: 0
   max_instances: 10
 
+# Remove PORT from env_variables as Cloud Run sets it automatically
 env_variables:
   NODE_ENV: "production"
+  # Do NOT set PORT here
 
 handlers:
 - url: /.*
   script: auto
   secure: always
 
+# Increase timeout for startup
 liveness_check:
   path: "/health"
-  initial_delay_sec: 30
+  initial_delay_sec: 60
   check_interval_sec: 30
-  timeout_sec: 4
-  failure_threshold: 2
+  timeout_sec: 10
+  failure_threshold: 3
   success_threshold: 2
 
 readiness_check:
   path: "/health"
-  check_interval_sec: 5
-  timeout_sec: 4
-  failure_threshold: 2
+  check_interval_sec: 10
+  timeout_sec: 10
+  failure_threshold: 3
   success_threshold: 2
+
+# Increase timeout
+timeout_sec: 300
