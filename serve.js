@@ -1360,28 +1360,25 @@ app.use((req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Server Start
+// Server Start (이 부분을 찾아서 수정)
 // ═══════════════════════════════════════════════════════════════════════════
 
-server.listen(config.port, () => {
+// Cloud Run은 PORT 환경변수를 자동으로 설정함
+const PORT = process.env.PORT || 8080;  // 3000이 아닌 8080을 기본값으로
+
+server.listen(PORT, '0.0.0.0', () => {  // '0.0.0.0' 추가하여 모든 인터페이스에서 수신
     logger.info(`
     ═══════════════════════════════════════════════════════════════════
     🚀 Gate.io Trading Bot Server Started
     ═══════════════════════════════════════════════════════════════════
-    📍 Port: ${config.port}
+    📍 Port: ${PORT}
     🌍 Environment: ${config.env}
     📅 Started: ${new Date().toISOString()}
-    📡 Webhook URL: http://localhost:${config.port}/webhook
+    📡 Webhook URL: https://YOUR_CLOUD_RUN_URL/webhook
     ═══════════════════════════════════════════════════════════════════
     `);
     
-    // Configuration check
-    console.log('Configuration Status:');
-    console.log('  Gate.io API:', config.gateio.apiKey ? '✅ Configured' : '❌ Missing');
-    console.log('  Webhook Secret:', config.webhook.secret ? '✅ Configured' : '❌ Missing');
-    console.log('  Admin Token:', config.admin.token ? '✅ Configured' : '❌ Missing');
-    console.log('  Telegram:', config.notifications.telegram.enabled ? '✅ Enabled' : '⚪ Disabled');
-    console.log('  Discord:', config.notifications.discord.enabled ? '✅ Enabled' : '⚪ Disabled');
+    console.log(`Server is running on port ${PORT}`);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
