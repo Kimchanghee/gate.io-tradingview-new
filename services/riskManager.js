@@ -132,3 +132,88 @@ class RiskManager {
         try {
             // 동일 방향의 포지션이 너무 많은지 확인
             let longCount = 0
+let longCount = 0;
+            let shortCount = 0;
+            
+            this.openPositions.forEach((position, symbol) => {
+                if (position.side === 'long') longCount++;
+                if (position.side === 'short') shortCount++;
+            });
+            
+            // 한 방향으로 5개 이상 포지션 제한
+            if (signal.action === 'buy' && longCount >= 5) {
+                return {
+                    approved: false,
+                    reason: 'Too many long positions open'
+                };
+            }
+            
+            if (signal.action === 'sell' && shortCount >= 5) {
+                return {
+                    approved: false,
+                    reason: 'Too many short positions open'
+                };
+            }
+            
+            return { approved: true };
+            
+        } catch (error) {
+            return {
+                approved: false,
+                reason: `Correlation check failed: ${error.message}`
+            };
+        }
+    }
+
+    async checkVolatility(signal) {
+        try {
+            // 24시간 변동률 확인
+            const stats = await gateio.get24hStats(signal.symbol);
+            const changePercent = parseFloat(stats.change_percentage);
+            
+            // 변동성이 20% 이상이면 경고
+            if (Math.abs(changePercent) > 20) {
+                logger.warn(`High volatility detected: ${changePercent}%`);
+                // 경고만 하고 통과는 시킴
+            }
+            
+            return { approved: true };
+            
+        } catch (error) {
+            // 변동성 체크 실패해도 통과
+            return { approved: true };
+        }
+    }
+
+    updatePosition(symbol, side, amount) {
+        if (amount === 0) {
+            this.openPositions.delete(symbol);
+        } else {
+            this.openPositions.set(symbol, { side, amount });
+        }
+    }
+
+    calculatePositionSize(accountBalance, riskPercentage, stopLossDistance) {
+        const riskAmount = accountBalance * (riskPercentage / 100);
+        const positionSize = riskAmount / stopLossDistance;
+        return positionSize;
+    }
+
+    calculateStopLoss(entryPrice, side, percentage) {
+        if (side === 'buy' || side === 'long') {
+            return entryPrice * (1 - percentage / 100);
+        } else {
+            return entryPrice * (1 + percentage / 100);
+        }
+    }
+
+    calculateTakeProfit(entryPrice, side, percentage) {
+        if (side === 'buy' || side === 'long') {
+            return entryPrice * (1 + percentage / 100);
+        } else {
+            return entryPrice * (1 - percentage / 100);
+        }
+    }
+}
+
+module.exports = new RiskManager();
