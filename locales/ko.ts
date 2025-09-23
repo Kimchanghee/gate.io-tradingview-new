@@ -26,6 +26,7 @@ export const ko = {
   connectionFailed: "API 연결에 실패했습니다",
   connectionError: "연결 중 오류가 발생했습니다",
   invalidCredentials: "API 인증 정보가 올바르지 않습니다",
+  gateCredentialErrorHint: "입력한 Gate.io API 키와 시크릿이 정확한지, 필요한 권한이 활성화되어 있는지 확인해주세요.",
   
   // 계정 정보
   totalEstimatedAssets: "전체 추정 자산 (USDT)",
@@ -65,6 +66,8 @@ export const ko = {
   profit: "수익",
   loading: "불러오는 중",
   noActivePositions: "활성화된 포지션이 없습니다",
+  positionsConnectPrompt: "API 키를 연결하면 실시간 포지션을 불러올 수 있습니다.",
+  positionsPermissionError: "선물 포지션 조회 권한이 없습니다. Gate.io API 키 설정에서 Futures 읽기 권한을 활성화해주세요.",
   quantity: "수량",
   entryPrice: "진입가",
   currentPrice: "현재가",
@@ -181,6 +184,8 @@ export const ko = {
   approvedStrategiesLabel: "승인된 전략",
   accessKeyLabel: "접근 키",
   uidAuthRequired: "UID로 인증을 완료해 주세요.",
+  uidNotFound: "등록된 UID 정보를 찾을 수 없습니다. 다시 로그인하거나 등록을 요청해 주세요.",
+  uidReauthRequired: "UID 인증 정보가 만료되었습니다. 다시 로그인해 주세요.",
 
   // 웹훅 및 신호 안내
   webhookIndicatorHint: "개인 전용 웹훅은 선택한 전략의 신호만 전달되며 TradingView에서 그대로 사용하면 됩니다.",

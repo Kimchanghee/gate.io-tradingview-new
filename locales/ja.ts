@@ -26,6 +26,7 @@ export const ja = {
   connectionFailed: "API接続に失敗しました",
   connectionError: "接続中にエラーが発生しました",
   invalidCredentials: "API認証情報が無効です",
+  gateCredentialErrorHint: "入力したGate.io APIキーとシークレットが正しく、必要な権限が有効になっているか確認してください。",
   
   // アカウント情報
   totalEstimatedAssets: "推定総資産 (USDT)",
@@ -65,6 +66,8 @@ export const ja = {
   profit: "利益",
   loading: "読み込み中",
   noActivePositions: "アクティブなポジションはありません",
+  positionsConnectPrompt: "APIキーを接続するとポジションを読み込めます。",
+  positionsPermissionError: "先物ポジションを閲覧する権限がありません。Gate.ioのAPIキー設定で先物の閲覧権限を有効にしてください。",
   quantity: "数量",
   entryPrice: "エントリー価格",
   currentPrice: "現在価格",
@@ -181,6 +184,8 @@ export const ja = {
   approvedStrategiesLabel: "承認された戦略",
   accessKeyLabel: "アクセスキー",
   uidAuthRequired: "UID認証を完了してください。",
+  uidNotFound: "登録されたUID情報が見つかりません。再度ログインするか登録申請をやり直してください。",
+  uidReauthRequired: "UID認証セッションの有効期限が切れました。もう一度ログインしてください。",
 
   // Webhook とシグナル
   webhookIndicatorHint: "個人用Webhookは選択した戦略だけを配信します。TradingViewでそのままご利用ください。",

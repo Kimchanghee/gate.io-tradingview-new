@@ -18,7 +18,7 @@ interface Position {
 const REFRESH_INTERVAL_MS = 15000;
 
 const PositionDashboard: React.FC = () => {
-  const { state, translate } = useAppContext();
+  const { state, translate, dispatch } = useAppContext();
   const [positions, setPositions] = useState<Position[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totalPnl, setTotalPnl] = useState(0);
@@ -30,6 +30,41 @@ const PositionDashboard: React.FC = () => {
   const accessKey = state.user.accessKey || '';
   const network = state.network;
   const canLoadPositions = Boolean(uid && accessKey && state.user.status === 'approved');
+
+  const resetPositionSummaries = useCallback(() => {
+    setPositions([]);
+    setTotalPnl(0);
+    setTotalInvestment(0);
+    setLastUpdated(null);
+  }, []);
+
+  const handleUserAccessGuard = useCallback(
+    (code?: string) => {
+      switch (code) {
+        case 'uid_not_found':
+          dispatch({ type: 'RESET_USER' });
+          resetPositionSummaries();
+          setErrorMessage(translate('uidNotFound'));
+          return true;
+        case 'uid_not_approved':
+          resetPositionSummaries();
+          setErrorMessage(translate('uidPendingNotice'));
+          return true;
+        case 'uid_credentials_mismatch':
+          dispatch({ type: 'RESET_USER' });
+          resetPositionSummaries();
+          setErrorMessage(translate('uidReauthRequired'));
+          return true;
+        case 'missing_credentials':
+          resetPositionSummaries();
+          setErrorMessage(translate('uidAuthRequired'));
+          return true;
+        default:
+          return false;
+      }
+    },
+    [dispatch, resetPositionSummaries, translate],
+  );
 
   const applyPositions = useCallback((positionsData: Position[]) => {
     const enhancedPositions = positionsData.map((pos: Position) => ({
@@ -48,10 +83,7 @@ const PositionDashboard: React.FC = () => {
 
   const fetchPositions = useCallback(async () => {
     if (!canLoadPositions) {
-      setPositions([]);
-      setTotalPnl(0);
-      setTotalInvestment(0);
-      setLastUpdated(null);
+      resetPositionSummaries();
       setErrorMessage(null);
       return;
     }
@@ -71,7 +103,31 @@ const PositionDashboard: React.FC = () => {
         }
       }
 
+      if (response.status === 404 && parsed?.code === 'no_connection') {
+        const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
+        applyPositions(fallbackPositions);
+        setLastUpdated(null);
+        setErrorMessage(translate('positionsConnectPrompt'));
+        return;
+      }
+
+      if (response.status === 403) {
+        if (handleUserAccessGuard(parsed?.code)) {
+          return;
+        }
+        if (parsed?.code === 'invalid_credentials') {
+          const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
+          applyPositions(fallbackPositions);
+          setLastUpdated(null);
+          setErrorMessage(translate('positionsPermissionError'));
+          return;
+        }
+      }
+
       if (!response.ok) {
+        if (handleUserAccessGuard(parsed?.code)) {
+          return;
+        }
         const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
         applyPositions(fallbackPositions);
         setLastUpdated(new Date().toISOString());
@@ -89,7 +145,16 @@ const PositionDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accessKey, applyPositions, canLoadPositions, network, uid]);
+  }, [
+    accessKey,
+    applyPositions,
+    canLoadPositions,
+    handleUserAccessGuard,
+    network,
+    resetPositionSummaries,
+    translate,
+    uid,
+  ]);
 
   useEffect(() => {
     fetchPositions();

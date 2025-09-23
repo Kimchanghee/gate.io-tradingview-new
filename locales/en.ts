@@ -26,6 +26,7 @@ export const en = {
   connectionFailed: "API connection failed",
   connectionError: "Error occurred during connection",
   invalidCredentials: "Invalid API credentials",
+  gateCredentialErrorHint: "Check that your Gate.io API key/secret are correct and that the required permissions are enabled.",
   
   // Account Info
   totalEstimatedAssets: "Total Estimated Assets (USDT)",
@@ -65,6 +66,8 @@ export const en = {
   profit: "Profit",
   loading: "Loading",
   noActivePositions: "No active positions",
+  positionsConnectPrompt: "Connect your API key to load live positions.",
+  positionsPermissionError: "You do not have permission to view futures positions. Enable the Futures read permission for your Gate.io API key.",
   quantity: "Quantity",
   entryPrice: "Entry Price",
   currentPrice: "Current Price",
@@ -181,6 +184,8 @@ export const en = {
   approvedStrategiesLabel: "Approved strategies",
   accessKeyLabel: "Access key",
   uidAuthRequired: "Please complete UID verification first.",
+  uidNotFound: "We couldn't find your UID record. Please sign in again or submit a new registration request.",
+  uidReauthRequired: "Your UID session has expired. Please sign in again to refresh your access.",
 
   // Webhook & signals
   webhookIndicatorHint: "Your personal webhook only delivers the strategies you selected. Use it directly inside TradingView.",
