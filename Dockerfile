@@ -1,41 +1,43 @@
-# Single stage build for Node.js app
 FROM node:20-alpine
 
-# Install dumb-init for proper signal handling
+# Install dependencies for better container handling
 RUN apk add --no-cache dumb-init
 
-# Create app directory
 WORKDIR /app
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies - npm install instead of npm ci
+# Install production dependencies
 RUN npm install --production && \
     npm cache clean --force
 
 # Copy application code
-COPY --chown=nodejs:nodejs . .
+COPY . .
 
 # Create necessary directories
 RUN mkdir -p logs data && \
+    chmod -R 755 logs data
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
     chown -R nodejs:nodejs /app
 
 # Switch to non-root user
 USER nodejs
 
-# Expose port
-EXPOSE 3000
+# Cloud Run expects PORT env variable
+ENV PORT=8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)})"
+# Expose the port
+EXPOSE 8080
 
-# Use dumb-init to handle signals properly
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 8080) + '/health', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)})"
+
+# Use dumb-init to handle signals
 ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
