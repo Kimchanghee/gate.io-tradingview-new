@@ -1,41 +1,29 @@
-# Multi-stage build for production
-FROM node:20-alpine AS builder
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies (production only)
-RUN npm ci --only=production
-
-# Copy application files
-COPY . .
-
-# No build step needed for Node.js app
-# RUN npm run build  <- 제거
-
-# Production stage
+# Single stage build for Node.js app
 FROM node:20-alpine
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init
 
+# Create app directory
+WORKDIR /app
+
 # Create app user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Set working directory
-WORKDIR /app
+# Copy package files
+COPY package*.json ./
 
-# Copy from builder
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+# Install dependencies - npm install instead of npm ci
+RUN npm install --production && \
+    npm cache clean --force
+
+# Copy application code
 COPY --chown=nodejs:nodejs . .
 
-# Create necessary directories with proper permissions
+# Create necessary directories
 RUN mkdir -p logs data && \
-    chown -R nodejs:nodejs logs data
+    chown -R nodejs:nodejs /app
 
 # Switch to non-root user
 USER nodejs
