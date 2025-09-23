@@ -2,10 +2,11 @@ runtime: nodejs20
 
 env: standard
 
+service: gate-bot
+
 automatic_scaling:
-  min_instances: 1
+  min_instances: 0
   max_instances: 10
-  target_cpu_utilization: 0.6
 
 env_variables:
   NODE_ENV: "production"
@@ -17,6 +18,7 @@ handlers:
 
 liveness_check:
   path: "/health"
+  initial_delay_sec: 30
   check_interval_sec: 30
   timeout_sec: 4
   failure_threshold: 2
