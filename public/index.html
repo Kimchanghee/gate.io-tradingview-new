@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gate.io Trading Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 90%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 30px;
+        }
+        
+        .status.online {
+            background: #10b981;
+            color: white;
+        }
+        
+        .status.offline {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .info-card {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .info-card h3 {
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        
+        .info-card p {
+            color: #111827;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        
+        .webhook-info {
+            background: #fef3c7;
+            border: 2px solid #fbbf24;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .webhook-info h3 {
+            color: #92400e;
+            margin-bottom: 10px;
+        }
+        
+        .webhook-url {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            word-break: break-all;
+            color: #1f2937;
+        }
+        
+        .logs {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+            height: 300px;
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+        
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
+        }
+        
+        .buttons {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        button.primary {
+            background: #6366f1;
+            color: white;
+        }
+        
+        button.primary:hover {
+            background: #4f46e5;
+        }
+        
+        button.danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        button.danger:hover {
+            background: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gate.io Trading Bot</h1>
+        <span class="status online" id="status">● Online</span>
+        
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>Active Positions</h3>
+                <p id="positions">0</p>
+            </div>
+            <div class="info-card">
+                <h3>24h Trades</h3>
+                <p id="trades">0</p>
+            </div>
+            <div class="info-card">
+                <h3>Engine Status</h3>
+                <p id="engine">Active</p>
+            </div>
+            <div class="info-card">
+                <h3>Uptime</h3>
+                <p id="uptime">0h 0m</p>
+            </div>
+        </div>
+        
+        <div class="webhook-info">
+            <h3>📮 TradingView Webhook URL</h3>
+            <div class="webhook-url" id="webhookUrl">Loading...</div>
+        </div>
+        
+        <div class="logs" id="logs">
+            <div class="log-entry">System starting...</div>
+        </div>
+        
+        <div class="buttons">
+            <button class="primary" onclick="testWebhook()">Test Webhook</button>
+            <button class="danger" onclick="emergencyStop()">Emergency Stop</button>
+        </div>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const logs = document.getElementById('logs');
+        
+        // WebSocket 연결
+        socket.on('connect', () => {
+            addLog('✅ Connected to server');
+            document.getElementById('status').className = 'status online';
+            document.getElementById('status').textContent = '● Online';
+        });
+        
+        socket.on('disconnect', () => {
+            addLog('❌ Disconnected from server');
+            document.getElementById('status').className = 'status offline';
+            document.getElementById('status').textContent = '● Offline';
+        });
+        
+        // 거래 신호 수신
+        socket.on('signal', (data) => {
+            addLog(`📊 Signal: ${data.signal.action} ${data.signal.symbol}`);
+            updateStats();
+        });
+        
+        socket.on('trade', (data) => {
+            addLog(`💰 Trade executed: ${data.result.orderId}`);
+            updateStats();
+        });
+        
+        // 구독
+        socket.emit('subscribe', { room: 'trading' });
+        
+        // 로그 추가
+        function addLog(message) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+            
+            // 최대 100개 로그 유지
+            while (logs.children.length > 100) {
+                logs.removeChild(logs.firstChild);
+            }
+        }
+        
+        // 통계 업데이트
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/status/engine');
+                const data = await response.json();
+                
+                document.getElementById('positions').textContent = data.positions || 0;
+                document.getElementById('engine').textContent = data.active ? 'Active' : 'Stopped';
+            } catch (error) {
+                console.error('Stats update error:', error);
+            }
+        }
+        
+        // Uptime 업데이트
+        async function updateUptime() {
+            try {
+                const response = await fetch('/api/status/system');
+                const data = await response.json();
+                
+                const uptime = data.uptime;
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                
+                document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
+            } catch (error) {
+                console.error('Uptime update error:', error);
+            }
+        }
+        
+        // 웹훅 URL 표시
+        function showWebhookUrl() {
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            const webhookUrl = `${protocol}//${host}/webhook/tradingview`;
+            document.getElementById('webhookUrl').textContent = webhookUrl;
+        }
+        
+        // 테스트 웹훅
+        async function testWebhook() {
+            try {
+                const response = await fetch('/webhook/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'buy',
+                        symbol: 'BTC_USDT',
+                        amount: 0.0001
+                    })
+                });
+                
+                const result = await response.json();
+                addLog(`✅ Test webhook: ${result.status}`);
+            } catch (error) {
+                addLog(`❌ Test failed: ${error.message}`);
+            }
+        }
+        
+        // 긴급 정지
+        async function emergencyStop() {
+            if (!confirm('Are you sure you want to emergency stop the bot?')) {
+                return;
+            }
+            
+            const token = prompt('Enter admin token:');
+            if (!token) return;
+            
+            try {
+                const response = await fetch('/admin/emergency-stop', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': token
+                    }
+                });
+                
+                const result = await response.json();
+                addLog(`🛑 Emergency stop: ${result.status}`);
+            } catch (error) {
+                addLog(`❌ Emergency stop failed: ${error.message}`);
+            }
+        }
+        
+        // 초기화
+        showWebhookUrl();
+        updateStats();
+        updateUptime();
+        
+        // 주기적 업데이트
+        setInterval(updateStats, 5000);
+        setInterval(updateUptime, 60000);
+    </script>
+</body>
+</html>
