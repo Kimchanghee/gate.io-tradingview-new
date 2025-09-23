@@ -166,12 +166,14 @@ const ApiSettingsCard: React.FC = () => {
         }
         markConnectionInactive(false);
         setConnectionStatus(message);
+        setApiBaseUrl(null);
         return;
       }
 
       if (!raw) {
         markConnectionInactive(false);
         setConnectionStatus(translate('connectionError'));
+        setApiBaseUrl(null);
         return;
       }
 
@@ -232,6 +234,7 @@ const ApiSettingsCard: React.FC = () => {
       console.error('API 연결 실패:', error);
       markConnectionInactive(false);
       setConnectionStatus(translate('connectionError'));
+      setApiBaseUrl(null);
     } finally {
       setIsConnecting(false);
     }
@@ -251,6 +254,7 @@ const ApiSettingsCard: React.FC = () => {
     setConnectionStatus('');
     setApiKey('');
     setApiSecret('');
+    setApiBaseUrl(null);
     dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: false } });
     setAutoTradingMessage('');
   };
