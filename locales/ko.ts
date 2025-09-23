@@ -11,6 +11,8 @@ export const ko = {
   apiSecret: "API Secret",
   currentNetwork: "현재 네트워크",
   networkHint: "상단 헤더에서 네트워크를 변경할 수 있습니다",
+  connectedNetworkLabel: "연결된 네트워크",
+  apiBaseUrlLabel: "Gate.io API 엔드포인트",
   networkAutoSwitchedTestnet: "입력하신 API 키가 테스트넷용으로 확인되어 테스트넷으로 전환했습니다",
   networkAutoSwitchedMainnet: "입력하신 API 키가 메인넷용으로 확인되어 메인넷으로 전환했습니다",
   connect: "API 연결",
@@ -24,6 +26,7 @@ export const ko = {
   connectionFailed: "API 연결에 실패했습니다",
   connectionError: "연결 중 오류가 발생했습니다",
   invalidCredentials: "API 인증 정보가 올바르지 않습니다",
+  gateCredentialErrorHint: "입력한 Gate.io API 키와 시크릿이 정확한지, 필요한 권한이 활성화되어 있는지 확인해주세요.",
   
   // 계정 정보
   totalEstimatedAssets: "전체 추정 자산 (USDT)",
@@ -63,6 +66,8 @@ export const ko = {
   profit: "수익",
   loading: "불러오는 중",
   noActivePositions: "활성화된 포지션이 없습니다",
+  positionsConnectPrompt: "API 키를 연결하면 실시간 포지션을 불러올 수 있습니다.",
+  positionsPermissionError: "선물 포지션 조회 권한이 없습니다. Gate.io API 키 설정에서 Futures 읽기 권한을 활성화해주세요.",
   quantity: "수량",
   entryPrice: "진입가",
   currentPrice: "현재가",

@@ -24,6 +24,7 @@ const ADMIN_SECRETS = new Set(
 
 const MAX_LOGS = 200;
 const MAX_SIGNAL_HISTORY = 100;
+const MAX_DELIVERY_HISTORY = 100;
 const VISITOR_TTL_MS = 5 * 60 * 1000;
 const SIGNAL_RECIPIENT_TTL_MS = 3 * 60 * 1000;
 
@@ -45,6 +46,7 @@ const userPositions = new Map();
 const userConnections = new Map();
 const visitorSessions = new Map();
 const signalRecipientActivity = new Map();
+const signalDeliveries = [];
 
 const NETWORK_MAINNET = 'mainnet';
 const NETWORK_TESTNET = 'testnet';
@@ -521,7 +523,13 @@ app.get('/api/positions', async (req, res) => {
   const connection = getUserConnectionForNetwork(uid, network);
   if (!connection || !connection.apiKey || !connection.apiSecret) {
     const fallback = getPositionsForNetwork(uid, network);
-    return res.status(404).json({ ok: false, message: 'API 연결 정보가 없습니다.', positions: fallback });
+    return res.status(404).json({
+      ok: false,
+      message: 'API 연결 정보가 없습니다.',
+      positions: fallback,
+      code: 'no_connection',
+      needsCredentials: true,
+    });
   }
 
   try {
@@ -549,7 +557,13 @@ app.get('/api/positions', async (req, res) => {
     });
     console.error(`[Gate.io] Failed to load positions for UID ${uid} (${network}):`, error?.message || error);
     const fallback = getPositionsForNetwork(uid, network);
-    return res.status(status).json({ ok: false, message, positions: fallback });
+    return res.status(status).json({
+      ok: false,
+      message,
+      positions: fallback,
+      code: credentialError ? 'invalid_credentials' : 'positions_error',
+      needsReconnect: credentialError,
+    });
   }
 });
 
@@ -581,6 +595,7 @@ app.post('/api/connect', async (req, res) => {
       apiKey: String(apiKey),
       apiSecret: String(apiSecret),
       accounts: snapshot.accounts,
+      apiBaseUrl: snapshot.baseUrl,
       lastError: null,
     });
 
@@ -600,7 +615,9 @@ app.post('/api/connect', async (req, res) => {
       accounts: snapshot.accounts,
       positions: snapshot.positions,
       autoTradingEnabled: Boolean(user.autoTradingEnabled),
-      network: networkKey,
+      network: snapshot.network ?? networkKey,
+      apiBaseUrl: snapshot.baseUrl ?? null,
+      networkMismatch: Boolean(snapshot.network && snapshot.network !== networkKey),
     });
   } catch (error) {
     const statusCode =
@@ -614,15 +631,19 @@ app.post('/api/connect', async (req, res) => {
       ? error.message
       : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
 
-    patchUserConnectionForNetwork(uid, networkKey, {
-      connected: false,
-      lastConnectedAt: nowIso(),
-      apiKey: String(apiKey),
-      apiSecret: String(apiSecret),
-      lastError: message,
-    });
-
     const credentialError = isGateCredentialError(error);
+    if (credentialError) {
+      clearUserConnectionForNetwork(uid, networkKey);
+      clearPositionsForNetwork(uid, networkKey);
+    } else {
+      patchUserConnectionForNetwork(uid, networkKey, {
+        connected: false,
+        lastConnectedAt: nowIso(),
+        apiKey: String(apiKey),
+        apiSecret: String(apiSecret),
+        lastError: message,
+      });
+    }
     const shouldRetryWithFallback =
       credentialError ||
       (statusCode !== null && statusCode >= 400 && statusCode < 500) ||
@@ -642,7 +663,8 @@ app.post('/api/connect', async (req, res) => {
             accounts: fallbackSnapshot.accounts,
             positions: fallbackSnapshot.positions,
             autoTradingEnabled: Boolean(user.autoTradingEnabled),
-            network: fallbackNetworkKey,
+            network: fallbackSnapshot.network ?? fallbackNetworkKey,
+            apiBaseUrl: fallbackSnapshot.baseUrl ?? null,
             networkMismatch: true,
           });
         } catch (fallbackError) {
@@ -656,7 +678,11 @@ app.post('/api/connect', async (req, res) => {
 
     console.error(`[Gate.io] Failed to connect UID ${uid} (${networkKey}):`, error?.message || error);
 
-    return res.status(status).json({ ok: false, message });
+    return res.status(status).json({
+      ok: false,
+      message,
+      code: credentialError ? 'invalid_credentials' : 'connect_failed',
+    });
   }
 });
 
@@ -929,6 +955,36 @@ adminRouter.get('/webhook', (req, res) => {
   });
 });
 
+adminRouter.get('/webhook/deliveries', (req, res) => {
+  const deliveries = signalDeliveries
+    .slice()
+    .reverse()
+    .map((entry) => ({
+      id: entry.id,
+      timestamp: entry.timestamp,
+      indicator: entry.indicator,
+      symbol: entry.symbol,
+      action: entry.action,
+      side: entry.side,
+      strategyId: entry.strategyId,
+      strategyName: entry.strategyName,
+      delivered: entry.recipients.length,
+      recipients: entry.recipients.map((uid) => {
+        const record = users.get(uid) || null;
+        const approvedList = Array.isArray(record?.approvedStrategies)
+          ? record.approvedStrategies.map(String)
+          : [];
+        return {
+          uid,
+          status: record?.status ?? 'unknown',
+          autoTradingEnabled: Boolean(record?.autoTradingEnabled),
+          approved: approvedList.includes(entry.strategyId),
+        };
+      }),
+    }));
+  res.json({ deliveries });
+});
+
 adminRouter.post('/webhook', async (req, res) => {
   if (webhook.url && webhook.secret) {
     return res.json({
@@ -1158,6 +1214,22 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
 
   const delivery = deliverSignalToUsers(strategy, signal);
 
+  const deliveryRecord = {
+    id: signal.id,
+    timestamp: signal.timestamp,
+    indicator: resolvedIndicator,
+    symbol: resolvedSymbol,
+    action: signal.action,
+    side: signal.side,
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+    recipients: delivery.recipients.slice(),
+  };
+  signalDeliveries.push(deliveryRecord);
+  if (signalDeliveries.length > MAX_DELIVERY_HISTORY) {
+    signalDeliveries.splice(0, signalDeliveries.length - MAX_DELIVERY_HISTORY);
+  }
+
   const adminRecord = {
     id: signal.id,
     timestamp: signal.timestamp,
@@ -1191,6 +1263,7 @@ app.post(['/webhook', '/webhook/:secret'], (req, res) => {
     delivered: delivery.delivered,
     strategyId: strategy.id,
     strategyName: strategy.name,
+    recipients: delivery.recipients.slice(),
   };
 
   res.json({ ok: true, delivered: delivery.delivered });

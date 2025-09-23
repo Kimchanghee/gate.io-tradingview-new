@@ -71,6 +71,22 @@ const PositionDashboard: React.FC = () => {
         }
       }
 
+      if (response.status === 404 && parsed?.code === 'no_connection') {
+        const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
+        applyPositions(fallbackPositions);
+        setLastUpdated(null);
+        setErrorMessage(translate('positionsConnectPrompt'));
+        return;
+      }
+
+      if (response.status === 403 && parsed?.code === 'invalid_credentials') {
+        const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
+        applyPositions(fallbackPositions);
+        setLastUpdated(null);
+        setErrorMessage(translate('positionsPermissionError'));
+        return;
+      }
+
       if (!response.ok) {
         const fallbackPositions = Array.isArray(parsed?.positions) ? parsed.positions : [];
         applyPositions(fallbackPositions);
@@ -89,7 +105,7 @@ const PositionDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accessKey, applyPositions, canLoadPositions, network, uid]);
+  }, [accessKey, applyPositions, canLoadPositions, network, translate, uid]);
 
   useEffect(() => {
     fetchPositions();

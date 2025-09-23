@@ -11,6 +11,8 @@ export const ja = {
   apiSecret: "APIシークレット",
   currentNetwork: "現在のネットワーク",
   networkHint: "上部ヘッダーでネットワークを変更できます",
+  connectedNetworkLabel: "接続中のネットワーク",
+  apiBaseUrlLabel: "Gate.io APIエンドポイント",
   networkAutoSwitchedTestnet: "入力されたAPIキーがテストネット用と判定されたため、テストネットへ自動で切り替えました",
   networkAutoSwitchedMainnet: "入力されたAPIキーがメインネット用と判定されたため、メインネットへ自動で切り替えました",
   connect: "API接続",
@@ -24,6 +26,7 @@ export const ja = {
   connectionFailed: "API接続に失敗しました",
   connectionError: "接続中にエラーが発生しました",
   invalidCredentials: "API認証情報が無効です",
+  gateCredentialErrorHint: "入力したGate.io APIキーとシークレットが正しく、必要な権限が有効になっているか確認してください。",
   
   // アカウント情報
   totalEstimatedAssets: "推定総資産 (USDT)",
@@ -63,6 +66,8 @@ export const ja = {
   profit: "利益",
   loading: "読み込み中",
   noActivePositions: "アクティブなポジションはありません",
+  positionsConnectPrompt: "APIキーを接続するとポジションを読み込めます。",
+  positionsPermissionError: "先物ポジションを閲覧する権限がありません。Gate.ioのAPIキー設定で先物の閲覧権限を有効にしてください。",
   quantity: "数量",
   entryPrice: "エントリー価格",
   currentPrice: "現在価格",

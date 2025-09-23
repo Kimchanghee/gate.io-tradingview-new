@@ -65,6 +65,7 @@ const ApiSettingsCard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'futures' | 'spot' | 'margin' | 'options'>('futures');
   const [autoToggleLoading, setAutoToggleLoading] = useState(false);
   const [autoTradingMessage, setAutoTradingMessage] = useState('');
+  const [apiBaseUrl, setApiBaseUrl] = useState<string | null>(null);
 
   const uidReady = state.user.isLoggedIn;
   const isUidApproved = state.user.status === 'approved';
@@ -89,6 +90,8 @@ const ApiSettingsCard: React.FC = () => {
 
     setIsConnecting(true);
     setConnectionStatus('');
+    setApiBaseUrl(null);
+    dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: true } });
 
     try {
       const response = await fetch('/api/connect', {
@@ -115,18 +118,24 @@ const ApiSettingsCard: React.FC = () => {
             if (parsed?.message) {
               message = parsed.message;
             }
+            if (parsed?.code === 'invalid_credentials') {
+              message = `${message} ${translate('gateCredentialErrorHint')}`;
+            }
           } catch {
             message = raw;
           }
         }
         setIsConnected(false);
         setConnectionStatus(message);
+        setApiBaseUrl(null);
+        dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
         return;
       }
 
       if (!raw) {
         setIsConnected(false);
         setConnectionStatus(translate('connectionError'));
+        setApiBaseUrl(null);
         return;
       }
 
@@ -142,7 +151,13 @@ const ApiSettingsCard: React.FC = () => {
 
       if (!result.ok) {
         setIsConnected(false);
-        setConnectionStatus(result?.message || translate('connectionFailed'));
+        let message = result?.message || translate('connectionFailed');
+        if (result?.code === 'invalid_credentials') {
+          message = `${message} ${translate('gateCredentialErrorHint')}`;
+        }
+        setConnectionStatus(message);
+        setApiBaseUrl(null);
+        dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
         return;
       }
 
@@ -170,14 +185,18 @@ const ApiSettingsCard: React.FC = () => {
 
       setConnectionStatus(statusMessage);
       setAccounts(result.accounts ?? null);
+      setApiBaseUrl(typeof result.apiBaseUrl === 'string' ? result.apiBaseUrl : null);
       if (typeof result.autoTradingEnabled === 'boolean') {
         dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: result.autoTradingEnabled } });
       }
       setAutoTradingMessage('');
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: true, isConnecting: false } });
     } catch (error) {
       console.error('API 연결 실패:', error);
       setIsConnected(false);
       setConnectionStatus(translate('connectionError'));
+      setApiBaseUrl(null);
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
     } finally {
       setIsConnecting(false);
     }
@@ -198,8 +217,10 @@ const ApiSettingsCard: React.FC = () => {
     setAccounts(null);
     setApiKey('');
     setApiSecret('');
+    setApiBaseUrl(null);
     dispatch({ type: 'SET_USER', payload: { autoTradingEnabled: false } });
     setAutoTradingMessage('');
+    dispatch({ type: 'SET_CONNECTION_STATUS', payload: { status: false, isConnecting: false } });
   };
 
   const refreshAccounts = async () => {
@@ -427,26 +448,35 @@ const ApiSettingsCard: React.FC = () => {
         // 연결 성공 후 통합 계정 정보 화면
         <div className="space-y-4">
           {/* 연결 상태 */}
-          <div className="flex items-center justify-between p-3 bg-green-900/30 border border-green-500/50 rounded-lg">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            <span className="text-green-400 font-medium">
-              {state.network === Network.Testnet ? translate('testnet') : translate('mainnet')} {translate('connected')}
-            </span>
-          </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={refreshAccounts}
-                className="text-xs text-blue-400 hover:text-blue-300"
-              >
-                {translate('refresh')}
-              </button>
-              <button
-                onClick={handleDisconnect}
-                className="text-xs text-red-400 hover:text-red-300"
-              >
-                {translate('disconnect')}
-              </button>
+          <div className="p-3 bg-green-900/30 border border-green-500/50 rounded-lg">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2">
+                <div className="mt-1 w-2 h-2 bg-green-500 rounded-full"></div>
+                <div className="flex flex-col">
+                  <span className="text-green-400 font-semibold">
+                    {translate('connectedNetworkLabel')}: {state.network === Network.Testnet ? translate('testnet') : translate('mainnet')} · {translate('connected')}
+                  </span>
+                  {apiBaseUrl && (
+                    <span className="text-xs text-gray-400 break-all">
+                      {translate('apiBaseUrlLabel')}: {apiBaseUrl}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={refreshAccounts}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  {translate('refresh')}
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  className="text-xs text-red-400 hover:text-red-300"
+                >
+                  {translate('disconnect')}
+                </button>
+              </div>
             </div>
           </div>
 
