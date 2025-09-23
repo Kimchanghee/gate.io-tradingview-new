@@ -1,1402 +1,1422 @@
-import express from 'express';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { appendSpreadsheetRow, isSheetsConfigured } from './services/googleSheets.js';
-import { loadPersistentState, savePersistentState } from './services/persistence.js';
-import {
-  fetchGateSnapshot,
-  fetchGateAccounts,
-  fetchGatePositions,
-  GateApiError,
-  isGateCredentialError,
-} from './services/gateApi.js';
+// ═══════════════════════════════════════════════════════════════════════════
+// Gate.io - TradingView Trading Bot Server
+// Version: 3.0.0
+// ═══════════════════════════════════════════════════════════════════════════
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+require('dotenv').config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const crypto = require('crypto');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const winston = require('winston');
+const http = require('http');
+const socketIo = require('socket.io');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
-const PORT = Number(process.env.PORT ?? 8080);
-const ADMIN_SECRETS = new Set(
-  [process.env.ADMIN_SECRET, 'Ckdgml9788@']
-    .filter((token) => typeof token === 'string' && token.trim().length > 0)
-    .map((token) => token.trim()),
-);
+// ═══════════════════════════════════════════════════════════════════════════
+// Configuration
+// ═══════════════════════════════════════════════════════════════════════════
 
-const MAX_LOGS = 200;
-const MAX_SIGNAL_HISTORY = 100;
-const MAX_DELIVERY_HISTORY = 100;
-const VISITOR_TTL_MS = 5 * 60 * 1000;
-const SIGNAL_RECIPIENT_TTL_MS = 3 * 60 * 1000;
+const config = {
+    // Server
+    port: process.env.PORT || 3000,
+    env: process.env.NODE_ENV || 'development',
+    
+    // Gate.io API
+    gateio: {
+        apiKey: process.env.GATE_API_KEY,
+        apiSecret: process.env.GATE_API_SECRET,
+        apiUrl: process.env.GATE_API_URL || 'https://api.gateio.ws/api/v4',
+    },
+    
+    // Webhook Security
+    webhook: {
+        secret: process.env.WEBHOOK_SECRET,
+        allowedIPs: process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(',').map(ip => ip.trim()) : [],
+    },
+    
+    // Trading Settings
+    trading: {
+        maxPositionSize: parseFloat(process.env.MAX_POSITION_SIZE || 1000),
+        riskPercentage: parseFloat(process.env.RISK_PERCENTAGE || 2),
+        stopLossPercentage: parseFloat(process.env.STOP_LOSS_PERCENTAGE || 5),
+        takeProfitPercentage: parseFloat(process.env.TAKE_PROFIT_PERCENTAGE || 10),
+        minOrderValue: 5, // USDT
+    },
+    
+    // Admin
+    admin: {
+        token: process.env.ADMIN_TOKEN,
+        username: process.env.ADMIN_USERNAME,
+        password: process.env.ADMIN_PASSWORD,
+    },
+    
+    // Notifications
+    notifications: {
+        telegram: {
+            enabled: !!process.env.TELEGRAM_BOT_TOKEN,
+            botToken: process.env.TELEGRAM_BOT_TOKEN,
+            chatId: process.env.TELEGRAM_CHAT_ID,
+        },
+        discord: {
+            enabled: !!process.env.DISCORD_WEBHOOK_URL,
+            webhookUrl: process.env.DISCORD_WEBHOOK_URL,
+        },
+    },
+    
+    // Logging
+    logging: {
+        level: process.env.LOG_LEVEL || 'info',
+        filePath: process.env.LOG_FILE_PATH || './logs',
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Logger Setup
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Create logs directory if it doesn't exist
+if (!fs.existsSync(config.logging.filePath)) {
+    fs.mkdirSync(config.logging.filePath, { recursive: true });
+}
+
+const logger = winston.createLogger({
+    level: config.logging.level,
+    format: winston.format.combine(
+        winston.format.timestamp({
+            format: 'YYYY-MM-DD HH:mm:ss'
+        }),
+        winston.format.errors({ stack: true }),
+        winston.format.splat(),
+        winston.format.json()
+    ),
+    defaultMeta: { service: 'gate-bot' },
+    transports: [
+        new winston.transports.File({
+            filename: path.join(config.logging.filePath, 'error.log'),
+            level: 'error',
+            maxsize: 5242880, // 5MB
+            maxFiles: 5
+        }),
+        new winston.transports.File({
+            filename: path.join(config.logging.filePath, 'combined.log'),
+            maxsize: 5242880,
+            maxFiles: 5
+        })
+    ]
+});
+
+// Console logging for development
+if (config.env !== 'production') {
+    logger.add(new winston.transports.Console({
+        format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.simple()
+        )
+    }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Express App Setup
+// ═══════════════════════════════════════════════════════════════════════════
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-const nowIso = () => new Date().toISOString();
-const randomId = (prefix = 'id') => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
-
-const normalizeIndicator = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-
-const logs = [];
-const strategies = new Map();
-const adminSignals = new Map();
-const users = new Map();
-const userSignals = new Map();
-const userPositions = new Map();
-const userConnections = new Map();
-const visitorSessions = new Map();
-const signalRecipientActivity = new Map();
-const signalDeliveries = [];
-
-const NETWORK_MAINNET = 'mainnet';
-const NETWORK_TESTNET = 'testnet';
-
-const resolveNetworkValue = (value, fallback = NETWORK_MAINNET) => {
-  if (typeof value === 'boolean') {
-    return value ? NETWORK_TESTNET : NETWORK_MAINNET;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === NETWORK_TESTNET) {
-      return NETWORK_TESTNET;
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
     }
-    if (normalized === NETWORK_MAINNET) {
-      return NETWORK_MAINNET;
-    }
-  }
-  return fallback;
+});
+
+// Global variables
+global.io = io;
+global.tradingEngine = {
+    isActive: true,
+    positions: new Map(),
+    orderQueue: [],
+    processing: false
 };
 
-const resolveNetworks = (value) => {
-  if (value === undefined || value === null || value === '') {
-    return [NETWORK_MAINNET, NETWORK_TESTNET];
-  }
-  return [resolveNetworkValue(value)];
-};
+// ═══════════════════════════════════════════════════════════════════════════
+// Middleware
+// ═══════════════════════════════════════════════════════════════════════════
 
-const ensureUserConnectionRecord = (uid) => {
-  if (!userConnections.has(uid)) {
-    userConnections.set(uid, {
-      [NETWORK_MAINNET]: null,
-      [NETWORK_TESTNET]: null,
-    });
-  }
-  return userConnections.get(uid);
-};
+// Security
+app.use(helmet({
+    contentSecurityPolicy: false
+}));
 
-const getUserConnectionForNetwork = (uid, network) => {
-  const record = ensureUserConnectionRecord(uid);
-  return record?.[network] ?? null;
-};
+// CORS
+app.use(cors());
 
-const setUserConnectionForNetwork = (uid, network, value) => {
-  const record = ensureUserConnectionRecord(uid);
-  record[network] = value;
-  userConnections.set(uid, record);
-  return value;
-};
+// Body Parser
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
 
-const patchUserConnectionForNetwork = (uid, network, patch) => {
-  const current = getUserConnectionForNetwork(uid, network) || {};
-  const next = { ...current, ...patch };
-  return setUserConnectionForNetwork(uid, network, next);
-};
+// Rate Limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP'
+});
 
-const clearUserConnectionForNetwork = (uid, network) => setUserConnectionForNetwork(uid, network, null);
+const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute for webhooks
+    skipSuccessfulRequests: false
+});
 
-const ensureUserPositionsRecord = (uid) => {
-  if (!userPositions.has(uid)) {
-    userPositions.set(uid, {
-      [NETWORK_MAINNET]: [],
-      [NETWORK_TESTNET]: [],
-    });
-  }
-  return userPositions.get(uid);
-};
+app.use('/api/', limiter);
+app.use('/webhook/', webhookLimiter);
 
-const getPositionsForNetwork = (uid, network) => {
-  const record = ensureUserPositionsRecord(uid);
-  const positions = record?.[network];
-  return Array.isArray(positions) ? positions : [];
-};
+// Request Logging
+app.use((req, res, next) => {
+    logger.info(`${req.method} ${req.path} - IP: ${req.ip}`);
+    req.startTime = Date.now();
+    next();
+});
 
-const setPositionsForNetwork = (uid, network, positions) => {
-  const record = ensureUserPositionsRecord(uid);
-  record[network] = Array.isArray(positions) ? positions : [];
-  userPositions.set(uid, record);
-  return record[network];
-};
+// Static files
+app.use(express.static(path.join(__dirname, 'public')));
 
-const clearPositionsForNetwork = (uid, network) => setPositionsForNetwork(uid, network, []);
+// ═══════════════════════════════════════════════════════════════════════════
+// Gate.io API Class
+// ═══════════════════════════════════════════════════════════════════════════
 
-const metricsState = {
-  lastVisitAt: null,
-  lastWebhook: null,
-  lastGoogleSheetsSync: null,
-};
-
-const webhook = {
-  url: null,
-  secret: null,
-  createdAt: null,
-  updatedAt: null,
-  routes: new Set(),
-};
-
-const persistedState = await loadPersistentState();
-
-if (persistedState?.strategies?.length) {
-  persistedState.strategies.forEach((entry) => {
-    if (!entry || !entry.id || !entry.name) {
-      return;
-    }
-    const aliases = Array.isArray(entry.aliases) && entry.aliases.length
-      ? entry.aliases
-      : [entry.name, entry.id];
-    const record = {
-      id: String(entry.id),
-      name: String(entry.name),
-      description: entry.description === undefined ? undefined : String(entry.description),
-      active: entry.active !== false,
-      createdAt: entry.createdAt ?? nowIso(),
-      updatedAt: entry.updatedAt ?? entry.createdAt ?? nowIso(),
-      aliases: new Set(
-        aliases
-          .map((alias) => normalizeIndicator(String(alias)))
-          .filter((alias) => alias.length > 0),
-      ),
-    };
-    strategies.set(record.id, record);
-    if (!adminSignals.has(record.id)) {
-      adminSignals.set(record.id, []);
-    }
-  });
-}
-
-if (persistedState?.users?.length) {
-  persistedState.users.forEach((entry) => {
-    if (!entry || !entry.uid) {
-      return;
-    }
-    const requestedList = Array.isArray(entry.requestedStrategies)
-      ? entry.requestedStrategies.map(String)
-      : [];
-    const approvedList = Array.isArray(entry.approvedStrategies)
-      ? entry.approvedStrategies.map(String)
-      : [];
-    const record = {
-      uid: String(entry.uid),
-      status: entry.status && typeof entry.status === 'string' ? entry.status : 'pending',
-      requestedStrategies: requestedList.filter((id) => strategies.has(id)),
-      approvedStrategies: approvedList.filter((id) => strategies.has(id)),
-      accessKey:
-        entry.accessKey === undefined || entry.accessKey === null
-          ? null
-          : String(entry.accessKey),
-      autoTradingEnabled: Boolean(entry.autoTradingEnabled),
-      createdAt: entry.createdAt ?? nowIso(),
-      updatedAt: entry.updatedAt ?? entry.createdAt ?? nowIso(),
-      approvedAt: entry.approvedAt ?? null,
-    };
-    users.set(record.uid, record);
-    if (!userSignals.has(record.uid)) {
-      userSignals.set(record.uid, Array.isArray(entry.signals) ? entry.signals : []);
-    }
-    const storedPositions = ensureUserPositionsRecord(record.uid);
-    if (entry.positions && typeof entry.positions === 'object') {
-      const mainnetPositions = Array.isArray(entry.positions[NETWORK_MAINNET])
-        ? entry.positions[NETWORK_MAINNET]
-        : [];
-      const testnetPositions = Array.isArray(entry.positions[NETWORK_TESTNET])
-        ? entry.positions[NETWORK_TESTNET]
-        : [];
-      storedPositions[NETWORK_MAINNET] = mainnetPositions;
-      storedPositions[NETWORK_TESTNET] = testnetPositions;
-    }
-  });
-}
-
-if (persistedState?.webhook) {
-  webhook.url = persistedState.webhook.url ?? null;
-  webhook.secret = persistedState.webhook.secret ?? null;
-  webhook.createdAt = persistedState.webhook.createdAt ?? null;
-  webhook.updatedAt = persistedState.webhook.updatedAt ?? null;
-  webhook.routes = new Set(
-    Array.isArray(persistedState.webhook.routes)
-      ? persistedState.webhook.routes.map(String).filter((id) => strategies.has(id))
-      : [],
-  );
-}
-
-const buildPersistentSnapshot = () => ({
-  users: Array.from(users.values()).map((user) => ({
-    uid: user.uid,
-    status: user.status,
-    requestedStrategies: user.requestedStrategies.slice(),
-    approvedStrategies: user.approvedStrategies.slice(),
-    accessKey: user.accessKey,
-    autoTradingEnabled: Boolean(user.autoTradingEnabled),
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-    approvedAt: user.approvedAt,
-  })),
-  strategies: Array.from(strategies.values()).map((strategy) => ({
-    id: strategy.id,
-    name: strategy.name,
-    description: strategy.description,
-    active: strategy.active,
-    createdAt: strategy.createdAt,
-    updatedAt: strategy.updatedAt,
-    aliases: Array.from(strategy.aliases ?? []),
-  })),
-  webhook:
-    webhook.url || webhook.secret || webhook.routes.size
-      ? {
-          url: webhook.url,
-          secret: webhook.secret,
-          createdAt: webhook.createdAt,
-          updatedAt: webhook.updatedAt,
-          routes: Array.from(webhook.routes).filter((id) => strategies.has(id)),
+class GateioAPI {
+    constructor(config) {
+        this.apiKey = config.gateio.apiKey;
+        this.apiSecret = config.gateio.apiSecret;
+        this.baseURL = config.gateio.apiUrl;
+        
+        if (!this.apiKey || !this.apiSecret) {
+            throw new Error('Gate.io API credentials not configured');
         }
-      : null,
-});
-
-const persistState = async () => {
-  try {
-    await savePersistentState(buildPersistentSnapshot());
-  } catch (err) {
-    console.error('Failed to persist application state', err);
-  }
-};
-
-const addLog = (level, message) => {
-  const entry = { id: randomId('log'), timestamp: nowIso(), level, message };
-  logs.push(entry);
-  if (logs.length > MAX_LOGS) {
-    logs.splice(0, logs.length - MAX_LOGS);
-  }
-};
-
-const createStrategyRecord = (id, name, description, aliases = []) => {
-  const createdAt = nowIso();
-  const record = {
-    id,
-    name,
-    description,
-    active: true,
-    createdAt,
-    updatedAt: createdAt,
-    aliases: new Set([name, id, ...aliases].map((alias) => normalizeIndicator(String(alias)))),
-  };
-  strategies.set(id, record);
-  adminSignals.set(id, []);
-  return record;
-};
-
-const cloneStrategyForClient = (strategy) => ({
-  id: strategy.id,
-  name: strategy.name,
-  description: strategy.description,
-  active: strategy.active,
-  createdAt: strategy.createdAt,
-  updatedAt: strategy.updatedAt,
-});
-
-const matchStrategyByIndicator = (indicator) => {
-  if (!indicator) return null;
-  const normalised = normalizeIndicator(String(indicator));
-  for (const strategy of strategies.values()) {
-    if (strategy.aliases.has(normalised)) {
-      return strategy;
+        
+        this.axiosInstance = axios.create({
+            baseURL: this.baseURL,
+            timeout: 10000,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        // Request interceptor
+        this.axiosInstance.interceptors.request.use(
+            config => {
+                logger.debug(`Gate.io API Request: ${config.method?.toUpperCase()} ${config.url}`);
+                return config;
+            },
+            error => {
+                logger.error('Gate.io API Request Error:', error);
+                return Promise.reject(error);
+            }
+        );
+        
+        // Response interceptor
+        this.axiosInstance.interceptors.response.use(
+            response => {
+                logger.debug(`Gate.io API Response: ${response.status}`);
+                return response;
+            },
+            error => {
+                const errorInfo = {
+                    status: error.response?.status,
+                    message: error.response?.data?.message || error.message,
+                    label: error.response?.data?.label,
+                    detail: error.response?.data?.detail
+                };
+                
+                logger.error('Gate.io API Error:', errorInfo);
+                
+                // Specific error handling
+                if (error.response?.status === 401) {
+                    logger.error('Authentication failed - Check API key and secret');
+                } else if (error.response?.status === 403) {
+                    logger.error('Permission denied - Check API key permissions');
+                } else if (error.response?.status === 429) {
+                    logger.error('Rate limit exceeded - Reduce request frequency');
+                }
+                
+                return Promise.reject(error);
+            }
+        );
     }
-  }
-  return null;
-};
-
-const parseDirection = (value) => {
-  const raw = String(value ?? '').toLowerCase();
-  const action = raw.includes('close') || raw.includes('exit') ? 'close' : 'open';
-  let side = 'long';
-  if (raw.includes('short') || raw.includes('sell')) {
-    side = 'short';
-  } else if (raw.includes('long') || raw.includes('buy')) {
-    side = 'long';
-  }
-  return { action, side };
-};
-
-const addAdminSignal = (strategyId, entry) => {
-  const bucket = adminSignals.get(strategyId) ?? [];
-  bucket.push(entry);
-  if (bucket.length > MAX_SIGNAL_HISTORY) {
-    bucket.splice(0, bucket.length - MAX_SIGNAL_HISTORY);
-  }
-  adminSignals.set(strategyId, bucket);
-};
-
-const addUserSignal = (uid, signal) => {
-  const bucket = userSignals.get(uid) ?? [];
-  bucket.push(signal);
-  if (bucket.length > MAX_SIGNAL_HISTORY) {
-    bucket.splice(0, bucket.length - MAX_SIGNAL_HISTORY);
-  }
-  userSignals.set(uid, bucket);
-};
-
-const deliverSignalToUsers = (strategy, signal) => {
-  const recipients = [];
-  for (const user of users.values()) {
-    if (user.status !== 'approved') continue;
-    if (!user.approvedStrategies.includes(strategy.id)) continue;
-
-    const deliveredSignal = {
-      ...signal,
-      strategyId: strategy.id,
-      indicator: signal.indicator ?? strategy.name,
-      status: signal.status ?? 'delivered',
-      autoTradingExecuted: Boolean(user.autoTradingEnabled),
-    };
-    addUserSignal(user.uid, deliveredSignal);
-    recipients.push(user.uid);
-  }
-  return { delivered: recipients.length, recipients };
-};
-
-const cleanupVisitorSessions = (now = Date.now()) => {
-  for (const [sessionId, session] of visitorSessions.entries()) {
-    if (now - session.lastSeen > VISITOR_TTL_MS) {
-      visitorSessions.delete(sessionId);
-    }
-  }
-};
-
-const cleanupSignalRecipientActivity = (now = Date.now()) => {
-  for (const [uid, timestamp] of signalRecipientActivity.entries()) {
-    if (now - timestamp > SIGNAL_RECIPIENT_TTL_MS) {
-      signalRecipientActivity.delete(uid);
-    }
-  }
-};
-
-const getActiveVisitorCount = (now = Date.now()) => {
-  cleanupVisitorSessions(now);
-  return visitorSessions.size;
-};
-
-const getActiveSignalRecipientCount = (now = Date.now()) => {
-  cleanupSignalRecipientActivity(now);
-  return signalRecipientActivity.size;
-};
-
-const formatInTimeZone = (date, timeZone, options) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone, ...options }).format(date);
-
-const formatKstDate = (value) => formatInTimeZone(value, 'Asia/Seoul', { year: 'numeric', month: '2-digit', day: '2-digit' });
-
-const formatKstTime = (value) =>
-  formatInTimeZone(value, 'Asia/Seoul', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-
-const verifyAdminToken = (token) => token && ADMIN_SECRETS.has(token.trim());
-
-const requireAdmin = (req, res, next) => {
-  const token = req.get('x-admin-token') || '';
-  if (!verifyAdminToken(token)) {
-    return res.status(401).json({ ok: false, message: 'Invalid administrator token.' });
-  }
-  return next();
-};
-
-const buildWebhookUrl = (req, secret) => {
-  const forwardedProto = req.get('x-forwarded-proto');
-  const protocol = forwardedProto ? forwardedProto.split(',')[0] : req.protocol;
-  const host = req.get('x-forwarded-host') || req.get('host');
-  return `${protocol}://${host}/webhook/${secret}`;
-};
-
-
-app.get('/api/strategies', (req, res) => {
-  const list = Array.from(strategies.values()).map(cloneStrategyForClient);
-  res.json({ strategies: list });
-});
-
-app.get('/api/logs', (req, res) => {
-  res.json({ logs });
-});
-
-app.post('/api/register', async (req, res) => {
-  const { uid, strategies: requested } = req.body || {};
-  if (!uid || typeof uid !== 'string') {
-    return res.status(400).json({ ok: false, message: 'UID is required.' });
-  }
-  const candidateStrategies = Array.isArray(requested)
-    ? requested
-        .map((id) => String(id))
-        .filter((id) => strategies.has(id))
-    : [];
-
-  const existing = users.get(uid);
-  if (existing) {
-    existing.status = 'pending';
-    existing.requestedStrategies = candidateStrategies;
-    existing.updatedAt = nowIso();
-    users.set(uid, existing);
-    addLog('info', `[REGISTER] Updated registration request for UID ${uid}.`);
-    await persistState();
-    return res.json({ ok: true, status: existing.status });
-  }
-
-  const createdAt = nowIso();
-  const userRecord = {
-    uid,
-    status: 'pending',
-    requestedStrategies: candidateStrategies,
-    approvedStrategies: [],
-    accessKey: null,
-    autoTradingEnabled: false,
-    createdAt,
-    updatedAt: createdAt,
-    approvedAt: null,
-  };
-  users.set(uid, userRecord);
-  userSignals.set(uid, []);
-  ensureUserPositionsRecord(uid);
-  addLog('info', `[REGISTER] Received new registration from UID ${uid}.`);
-  await persistState();
-  return res.json({ ok: true, status: userRecord.status });
-});
-
-const toNamedStrategies = (ids = []) =>
-  ids.map((id) => ({ id, name: strategies.get(id)?.name ?? id }));
-
-app.get('/api/user/status', async (req, res) => {
-  const uid = req.query.uid ? String(req.query.uid) : '';
-  if (!uid) {
-    return res.status(400).json({ status: 'not_registered' });
-  }
-
-  const record = users.get(uid);
-  if (!record) {
-    return res.json({ status: 'not_registered' });
-  }
-
-  let accessKey =
-    typeof record.accessKey === 'string' && record.accessKey.trim().length > 0
-      ? record.accessKey.trim()
-      : null;
-
-  let recordMutated = false;
-  let issuedNewKey = false;
-
-  if (accessKey && accessKey !== record.accessKey) {
-    record.accessKey = accessKey;
-    recordMutated = true;
-  }
-
-  if (record.status === 'approved' && !accessKey) {
-    accessKey = randomId('access');
-    record.accessKey = accessKey;
-    record.updatedAt = nowIso();
-    issuedNewKey = true;
-    recordMutated = true;
-  }
-
-  if (recordMutated) {
-    users.set(uid, record);
-    if (issuedNewKey) {
-      addLog('info', `[ACCESS] Issued fresh access key for UID ${uid}.`);
-    }
-    try {
-      await persistState();
-    } catch (error) {
-      console.error('Failed to persist refreshed access key state', error);
-    }
-  }
-
-  return res.json({
-    status: record.status,
-    accessKey,
-    requestedStrategies: toNamedStrategies(record.requestedStrategies),
-    approvedStrategies: toNamedStrategies(record.approvedStrategies),
-    autoTradingEnabled: Boolean(record.autoTradingEnabled),
-  });
-});
-
-const normalizeAccessValue = (value) => (typeof value === 'string' ? value.trim() : '');
-
-const resolveUserAccess = (uid, key) => {
-  const normalizedUid = normalizeAccessValue(uid);
-  const normalizedKey = normalizeAccessValue(key);
-
-  if (!normalizedUid || !normalizedKey) {
-    return {
-      user: null,
-      status: 400,
-      code: 'missing_credentials',
-      message: 'Missing credentials.',
-    };
-  }
-
-  const record = users.get(normalizedUid);
-  if (!record) {
-    return {
-      user: null,
-      status: 403,
-      code: 'uid_not_found',
-      message: 'UID is not registered.',
-    };
-  }
-
-  if (record.status !== 'approved') {
-    return {
-      user: null,
-      status: 403,
-      code: 'uid_not_approved',
-      message: 'UID is not approved yet.',
-    };
-  }
-
-  if (record.accessKey !== normalizedKey) {
-    return {
-      user: null,
-      status: 403,
-      code: 'uid_credentials_mismatch',
-      message: 'Invalid credentials.',
-    };
-  }
-
-  return {
-    user: record,
-    status: 200,
-    code: null,
-    message: null,
-  };
-};
-
-app.get('/api/user/signals', (req, res) => {
-  const uid = req.query.uid ? String(req.query.uid) : '';
-  const key = req.query.key ? String(req.query.key) : '';
-  const access = resolveUserAccess(uid, key);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-  const user = access.user;
-  const signalsForUser = userSignals.get(uid) ?? [];
-  const payload = signalsForUser.slice();
-  userSignals.set(uid, []);
-  return res.json({ signals: payload });
-});
-
-app.get('/api/positions', async (req, res) => {
-  const uid = req.query.uid ? String(req.query.uid) : '';
-  const key = req.query.key ? String(req.query.key) : '';
-  const access = resolveUserAccess(uid, key);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-  const user = access.user;
-  const network = resolveNetworkValue(req.query.network);
-  const connection = getUserConnectionForNetwork(uid, network);
-  if (!connection || !connection.apiKey || !connection.apiSecret) {
-    const fallback = getPositionsForNetwork(uid, network);
-    return res.status(404).json({
-      ok: false,
-      message: 'API 연결 정보가 없습니다.',
-      positions: fallback,
-      code: 'no_connection',
-      needsCredentials: true,
-    });
-  }
-
-  try {
-    const positions = await fetchGatePositions({
-      apiKey: String(connection.apiKey),
-      apiSecret: String(connection.apiSecret),
-      isTestnet: network === NETWORK_TESTNET,
-    });
-    setPositionsForNetwork(uid, network, positions);
-    patchUserConnectionForNetwork(uid, network, {
-      connected: true,
-      lastPositionsSyncAt: nowIso(),
-      lastError: null,
-    });
-    return res.json({ positions });
-  } catch (error) {
-    const status = error instanceof GateApiError && error.status ? error.status : 502;
-    const message = error instanceof GateApiError
-      ? error.message
-      : '포지션 정보를 불러오지 못했습니다.';
-    const credentialError = isGateCredentialError(error);
-    patchUserConnectionForNetwork(uid, network, {
-      lastError: message,
-      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
-    });
-    console.error(`[Gate.io] Failed to load positions for UID ${uid} (${network}):`, error?.message || error);
-    const fallback = getPositionsForNetwork(uid, network);
-    return res.status(status).json({
-      ok: false,
-      message,
-      positions: fallback,
-      code: credentialError ? 'invalid_credentials' : 'positions_error',
-      needsReconnect: credentialError,
-    });
-  }
-});
-
-app.post('/api/connect', async (req, res) => {
-  const { uid, accessKey, apiKey, apiSecret, isTestnet, network } = req.body || {};
-  if (!apiKey || !apiSecret) {
-    return res
-      .status(400)
-      .json({ ok: false, message: 'Missing credentials.', code: 'missing_credentials' });
-  }
-
-  const access = resolveUserAccess(uid, accessKey);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-
-  const user = access.user;
-
-  const networkKey = resolveNetworkValue(
-    typeof isTestnet === 'boolean' ? isTestnet : network,
-  );
-
-  const connectForNetwork = async (targetNetwork, { logSuffix = '' } = {}) => {
-    const snapshot = await fetchGateSnapshot({
-      apiKey: String(apiKey),
-      apiSecret: String(apiSecret),
-      isTestnet: targetNetwork === NETWORK_TESTNET,
-    });
-
-    patchUserConnectionForNetwork(uid, targetNetwork, {
-      connected: true,
-      lastConnectedAt: nowIso(),
-      apiKey: String(apiKey),
-      apiSecret: String(apiSecret),
-      accounts: snapshot.accounts,
-      apiBaseUrl: snapshot.baseUrl,
-      lastError: null,
-    });
-
-    setPositionsForNetwork(uid, targetNetwork, snapshot.positions);
-
-    addLog('info', `[API] Connected user ${uid} (${targetNetwork})${logSuffix}`);
-
-    return snapshot;
-  };
-
-  try {
-    const snapshot = await connectForNetwork(networkKey);
-
-    return res.json({
-      ok: true,
-      connected: true,
-      accounts: snapshot.accounts,
-      positions: snapshot.positions,
-      autoTradingEnabled: Boolean(user.autoTradingEnabled),
-      network: snapshot.network ?? networkKey,
-      apiBaseUrl: snapshot.baseUrl ?? null,
-      networkMismatch: Boolean(snapshot.network && snapshot.network !== networkKey),
-    });
-  } catch (error) {
-    const statusCode =
-      error instanceof GateApiError && typeof error.status === 'number'
-        ? error.status
-        : typeof error?.status === 'number'
-        ? error.status
-        : null;
-    const status = statusCode ?? 502;
-    const message = error instanceof GateApiError
-      ? error.message
-      : 'Gate.io API에서 계정 정보를 불러오지 못했습니다.';
-
-    const credentialError = isGateCredentialError(error);
-    if (credentialError) {
-      clearUserConnectionForNetwork(uid, networkKey);
-      clearPositionsForNetwork(uid, networkKey);
-    } else {
-      patchUserConnectionForNetwork(uid, networkKey, {
-        connected: false,
-        lastConnectedAt: nowIso(),
-        apiKey: String(apiKey),
-        apiSecret: String(apiSecret),
-        lastError: message,
-      });
-    }
-    const shouldRetryWithFallback =
-      credentialError ||
-      (statusCode !== null && statusCode >= 400 && statusCode < 500) ||
-      statusCode === null;
-
-    if (shouldRetryWithFallback) {
-      const fallbackNetworkKey = networkKey === NETWORK_TESTNET ? NETWORK_MAINNET : NETWORK_TESTNET;
-      if (fallbackNetworkKey !== networkKey) {
-        try {
-          const fallbackSnapshot = await connectForNetwork(fallbackNetworkKey, {
-            logSuffix: ' (auto-detected network)',
-          });
-
-          return res.json({
-            ok: true,
-            connected: true,
-            accounts: fallbackSnapshot.accounts,
-            positions: fallbackSnapshot.positions,
-            autoTradingEnabled: Boolean(user.autoTradingEnabled),
-            network: fallbackSnapshot.network ?? fallbackNetworkKey,
-            apiBaseUrl: fallbackSnapshot.baseUrl ?? null,
-            networkMismatch: true,
-          });
-        } catch (fallbackError) {
-          console.error(
-            `[Gate.io] Fallback connect attempt for UID ${uid} (${fallbackNetworkKey}) failed:`,
-            fallbackError?.message || fallbackError,
-          );
-        }
-      }
-    }
-
-    console.error(`[Gate.io] Failed to connect UID ${uid} (${networkKey}):`, error?.message || error);
-
-    return res.status(status).json({
-      ok: false,
-      message,
-      code: credentialError ? 'invalid_credentials' : 'connect_failed',
-    });
-  }
-});
-
-app.post('/api/disconnect', (req, res) => {
-  const { uid, network } = req.body || {};
-  if (!uid) {
-    return res.json({ ok: true });
-  }
-
-  const networks = resolveNetworks(network);
-  networks.forEach((networkKey) => {
-    const connection = getUserConnectionForNetwork(uid, networkKey);
-    if (connection) {
-      addLog('info', `[API] Disconnected user ${uid} (${networkKey}).`);
-    }
-    clearUserConnectionForNetwork(uid, networkKey);
-    clearPositionsForNetwork(uid, networkKey);
-  });
-
-  res.json({ ok: true });
-});
-
-app.get('/api/accounts/all', async (req, res) => {
-  const uid = req.query.uid ? String(req.query.uid) : '';
-  const key = req.query.key ? String(req.query.key) : '';
-  const access = resolveUserAccess(uid, key);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-  const user = access.user;
-
-  const network = resolveNetworkValue(req.query.network);
-  const connection = getUserConnectionForNetwork(uid, network);
-  if (!connection || !connection.apiKey || !connection.apiSecret) {
-    return res.status(404).json({ ok: false, message: 'API 연결 정보가 없습니다.' });
-  }
-
-  try {
-    const accounts = await fetchGateAccounts({
-      apiKey: String(connection.apiKey),
-      apiSecret: String(connection.apiSecret),
-      isTestnet: network === NETWORK_TESTNET,
-    });
-
-    patchUserConnectionForNetwork(uid, network, {
-      accounts,
-      connected: true,
-      lastSyncedAt: nowIso(),
-      lastError: null,
-    });
-
-    return res.json(accounts);
-  } catch (error) {
-    const status = error instanceof GateApiError && error.status ? error.status : 502;
-    const message = error instanceof GateApiError
-      ? error.message
-      : '계정 정보를 불러오지 못했습니다.';
-
-    const credentialError = isGateCredentialError(error);
-
-    patchUserConnectionForNetwork(uid, network, {
-      lastError: message,
-      connected: credentialError ? false : status !== 401 && status !== 403 ? true : false,
-    });
-
-    console.error(`[Gate.io] Failed to refresh accounts for UID ${uid} (${network}):`, error?.message || error);
-
-    return res.status(status).json({ ok: false, message });
-  }
-});
-
-app.post('/api/trading/auto', async (req, res) => {
-  const { uid, accessKey, enabled } = req.body || {};
-  const access = resolveUserAccess(uid, accessKey);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-  const user = access.user;
-  user.autoTradingEnabled = Boolean(enabled);
-  user.updatedAt = nowIso();
-  users.set(user.uid, user);
-  addLog('info', `[AUTO] ${user.uid} set auto-trading ${user.autoTradingEnabled ? 'enabled' : 'disabled'}.`);
-  await persistState();
-  return res.json({ ok: true, autoTradingEnabled: user.autoTradingEnabled });
-});
-
-app.post('/api/metrics/visit', async (req, res) => {
-  const now = Date.now();
-  const isoNow = new Date(now).toISOString();
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const clientIp = Array.isArray(forwardedFor)
-    ? forwardedFor[0]
-    : typeof forwardedFor === 'string'
-    ? forwardedFor.split(',')[0].trim()
-    : req.ip;
-
-  let { sessionId, path: visitedPath, referrer } = req.body || {};
-  let normalizedSession = typeof sessionId === 'string' ? sessionId.trim() : '';
-  if (!normalizedSession) {
-    normalizedSession = randomId('visit');
-  }
-  if (normalizedSession.length > 80) {
-    normalizedSession = normalizedSession.slice(0, 80);
-  }
-
-  const existing = visitorSessions.get(normalizedSession);
-  const record = {
-    firstSeen: existing?.firstSeen ?? now,
-    lastSeen: now,
-    path: typeof visitedPath === 'string' ? visitedPath.slice(0, 200) : '/',
-    referrer: typeof referrer === 'string' ? referrer.slice(0, 200) : '',
-    userAgent: req.get('user-agent') || existing?.userAgent || '',
-    ip: clientIp || existing?.ip || '',
-    lastLoggedAt: existing?.lastLoggedAt ?? 0,
-  };
-
-  visitorSessions.set(normalizedSession, record);
-  metricsState.lastVisitAt = isoNow;
-  cleanupVisitorSessions(now);
-
-  let sheetResult = { ok: false, reason: 'skipped' };
-  const shouldLogToSheets = !existing || now - (existing.lastLoggedAt ?? 0) >= 10 * 60 * 1000;
-  if (shouldLogToSheets) {
-    const eventDate = new Date(now);
-    const kstDate = formatKstDate(eventDate);
-    const kstTime = formatKstTime(eventDate);
-    if (isSheetsConfigured()) {
-      sheetResult = await appendSpreadsheetRow([
-        kstDate,
-        kstTime,
-        normalizedSession,
-        record.path,
-        record.referrer || '',
-        record.userAgent,
-        record.ip,
-      ]);
-      metricsState.lastGoogleSheetsSync = {
-        timestamp: isoNow,
-        status: sheetResult.ok ? 'success' : 'error',
-        error: sheetResult.ok ? null : sheetResult.error || sheetResult.reason || 'unknown error',
-      };
-    } else {
-      metricsState.lastGoogleSheetsSync = {
-        timestamp: isoNow,
-        status: 'disabled',
-        error: null,
-      };
-    }
-    record.lastLoggedAt = now;
-    visitorSessions.set(normalizedSession, record);
-  } else if (!metricsState.lastGoogleSheetsSync) {
-    metricsState.lastGoogleSheetsSync = {
-      timestamp: isoNow,
-      status: isSheetsConfigured() ? 'pending' : 'disabled',
-      error: null,
-    };
-  }
-
-  if (!existing) {
-    addLog('info', `[VISIT] Recorded new visitor session ${normalizedSession} (${record.path})`);
-  }
-
-  res.json({
-    ok: true,
-    sessionId: normalizedSession,
-    activeVisitors: getActiveVisitorCount(now),
-    sheets: metricsState.lastGoogleSheetsSync,
-  });
-});
-
-app.post('/api/positions/close', (req, res) => {
-  const { uid, accessKey, contract, network } = req.body || {};
-  const access = resolveUserAccess(uid, accessKey);
-  if (!access.user) {
-    return res
-      .status(access.status)
-      .json({ ok: false, message: access.message, code: access.code });
-  }
-  const user = access.user;
-  if (!contract) {
-    return res.status(400).json({ ok: false, message: 'Contract is required.' });
-  }
-  const networkKey = resolveNetworkValue(network);
-  const positions = getPositionsForNetwork(user.uid, networkKey);
-  const nextPositions = positions.filter((position) => position.contract !== contract);
-  setPositionsForNetwork(user.uid, networkKey, nextPositions);
-  addLog('info', `[POSITION] Closed ${contract} for UID ${user.uid} (${networkKey}).`);
-  return res.json({ ok: true });
-});
-
-const adminRouter = express.Router();
-adminRouter.use(requireAdmin);
-
-adminRouter.get('/overview', (req, res) => {
-  const userList = Array.from(users.values()).map((user) => ({
-    uid: user.uid,
-    status: user.status,
-    requestedStrategies: user.requestedStrategies.slice(),
-    approvedStrategies: user.approvedStrategies.slice(),
-    accessKey: user.accessKey,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-    approvedAt: user.approvedAt,
-  }));
-  const strategyList = Array.from(strategies.values()).map(cloneStrategyForClient);
-  const stats = {
-    totalUsers: userList.length,
-    pending: userList.filter((item) => item.status === 'pending').length,
-    approved: userList.filter((item) => item.status === 'approved').length,
-  };
-  res.json({ users: userList, strategies: strategyList, stats });
-});
-
-adminRouter.get('/signals', (req, res) => {
-  const strategyId = req.query.strategy ? String(req.query.strategy) : '';
-  if (!strategyId) {
-    return res.status(400).json({ ok: false, message: 'Strategy id is required.' });
-  }
-  const signalsForStrategy = adminSignals.get(strategyId) ?? [];
-  res.json({ signals: signalsForStrategy.slice().reverse() });
-});
-
-adminRouter.get('/metrics', (req, res) => {
-  const now = Date.now();
-  const webhookReady = Boolean(webhook.secret && webhook.url && webhook.routes.size);
-  const issues = [];
-  if (!webhook.secret) {
-    issues.push('웹훅 비밀 키가 생성되지 않았습니다.');
-  }
-  if (!webhook.url) {
-    issues.push('웹훅 URL이 생성되지 않았습니다.');
-  }
-  if (!webhook.routes.size) {
-    issues.push('전달 대상 전략이 비어 있습니다.');
-  }
-
-  const lastSheets = metricsState.lastGoogleSheetsSync;
-
-  res.json({
-    visitors: {
-      active: getActiveVisitorCount(now),
-      totalSessions: visitorSessions.size,
-      lastVisitAt: metricsState.lastVisitAt,
-    },
-    signalRecipients: {
-      active: getActiveSignalRecipientCount(now),
-      lastSignalAt: metricsState.lastWebhook?.timestamp ?? null,
-      lastDeliveredCount: metricsState.lastWebhook?.delivered ?? 0,
-    },
-    webhook: {
-      ready: webhookReady,
-      issues,
-      routes: Array.from(webhook.routes),
-      lastSignal: metricsState.lastWebhook,
-    },
-    googleSheets: {
-      configured: isSheetsConfigured(),
-      lastStatus: lastSheets?.status ?? (isSheetsConfigured() ? 'pending' : 'disabled'),
-      lastSyncAt: lastSheets?.timestamp ?? null,
-      lastError: lastSheets?.error ?? null,
-    },
-  });
-});
-
-adminRouter.get('/webhook', (req, res) => {
-  if (!webhook.url || !webhook.secret) {
-    return res.status(404).json({ ok: false, message: 'Webhook not configured.' });
-  }
-  res.json({
-    url: webhook.url,
-    secret: webhook.secret,
-    createdAt: webhook.createdAt,
-    updatedAt: webhook.updatedAt,
-    routes: Array.from(webhook.routes),
-  });
-});
-
-adminRouter.get('/webhook/deliveries', (req, res) => {
-  const deliveries = signalDeliveries
-    .slice()
-    .reverse()
-    .map((entry) => ({
-      id: entry.id,
-      timestamp: entry.timestamp,
-      indicator: entry.indicator,
-      symbol: entry.symbol,
-      action: entry.action,
-      side: entry.side,
-      strategyId: entry.strategyId,
-      strategyName: entry.strategyName,
-      delivered: entry.recipients.length,
-      recipients: entry.recipients.map((uid) => {
-        const record = users.get(uid) || null;
-        const approvedList = Array.isArray(record?.approvedStrategies)
-          ? record.approvedStrategies.map(String)
-          : [];
+    
+    generateSignature(method, url, queryString = '', payload = '') {
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const hashedPayload = crypto
+            .createHash('sha512')
+            .update(payload || '')
+            .digest('hex');
+        
+        const signatureString = [
+            method.toUpperCase(),
+            url,
+            queryString,
+            hashedPayload,
+            timestamp
+        ].join('\n');
+        
+        const signature = crypto
+            .createHmac('sha512', this.apiSecret)
+            .update(signatureString)
+            .digest('hex');
+        
         return {
-          uid,
-          status: record?.status ?? 'unknown',
-          autoTradingEnabled: Boolean(record?.autoTradingEnabled),
-          approved: approvedList.includes(entry.strategyId),
+            'KEY': this.apiKey,
+            'SIGN': signature,
+            'Timestamp': timestamp
         };
-      }),
-    }));
-  res.json({ deliveries });
-});
-
-adminRouter.post('/webhook', async (req, res) => {
-  if (webhook.url && webhook.secret) {
-    return res.json({
-      url: webhook.url,
-      secret: webhook.secret,
-      createdAt: webhook.createdAt,
-      updatedAt: webhook.updatedAt,
-      routes: Array.from(webhook.routes),
-      alreadyExists: true,
-    });
-  }
-  const secret = randomId('wh');
-  webhook.secret = secret;
-  webhook.url = buildWebhookUrl(req, secret);
-  webhook.createdAt = webhook.createdAt ?? nowIso();
-  webhook.updatedAt = nowIso();
-  if (!webhook.routes.size) {
-    webhook.routes = new Set(Array.from(strategies.keys()));
-  }
-  addLog('info', '[WEBHOOK] Generated new webhook credentials.');
-  await persistState();
-  res.json({
-    url: webhook.url,
-    secret: webhook.secret,
-    createdAt: webhook.createdAt,
-    updatedAt: webhook.updatedAt,
-    routes: Array.from(webhook.routes),
-    alreadyExists: false,
-  });
-});
-
-adminRouter.put('/webhook/routes', async (req, res) => {
-  const { strategies: selected } = req.body || {};
-  if (!Array.isArray(selected)) {
-    return res.status(400).json({ ok: false, message: 'Invalid strategy list.' });
-  }
-  webhook.routes = new Set(selected.filter((id) => strategies.has(String(id))).map(String));
-  webhook.updatedAt = nowIso();
-  addLog('info', `[WEBHOOK] Updated delivery routes: ${Array.from(webhook.routes).join(', ') || 'none'}.`);
-  await persistState();
-  res.json({ ok: true, routes: Array.from(webhook.routes) });
-});
-
-adminRouter.post('/users/approve', async (req, res) => {
-  const { uid, strategies: selected } = req.body || {};
-  if (!uid) {
-    return res.status(400).json({ ok: false, message: 'UID is required.' });
-  }
-  const user = users.get(uid);
-  if (!user) {
-    return res.status(404).json({ ok: false, message: 'User not found.' });
-  }
-  let baseSelection = [];
-  if (Array.isArray(selected)) {
-    baseSelection = selected.map(String);
-  } else if (Array.isArray(user.requestedStrategies)) {
-    baseSelection = user.requestedStrategies.map(String);
-  }
-  const approved = Array.from(new Set(baseSelection.filter((id) => strategies.has(id))));
-  user.status = 'approved';
-  user.requestedStrategies = baseSelection.slice();
-  user.approvedStrategies = approved;
-  user.accessKey = user.accessKey || randomId('access');
-  user.autoTradingEnabled = user.autoTradingEnabled ?? false;
-  user.updatedAt = nowIso();
-  user.approvedAt = nowIso();
-  users.set(uid, user);
-  const logMessage = approved.length
-    ? `[ADMIN] Approved UID ${uid} with strategies: ${approved.join(', ')}.`
-    : `[ADMIN] Approved UID ${uid}.`;
-  addLog('info', logMessage);
-  await persistState();
-  res.json({ ok: true, approvedStrategies: approved });
-});
-
-adminRouter.post('/users/deny', async (req, res) => {
-  const { uid } = req.body || {};
-  if (!uid) {
-    return res.status(400).json({ ok: false, message: 'UID is required.' });
-  }
-  const user = users.get(uid);
-  if (!user) {
-    return res.status(404).json({ ok: false, message: 'User not found.' });
-  }
-  user.status = 'denied';
-  user.approvedStrategies = [];
-  user.accessKey = null;
-  user.autoTradingEnabled = false;
-  user.updatedAt = nowIso();
-  users.set(uid, user);
-  addLog('info', `[ADMIN] Denied UID ${uid}.`);
-  await persistState();
-  res.json({ ok: true });
-});
-
-adminRouter.delete('/users/:uid', async (req, res) => {
-  const { uid } = req.params;
-  if (!uid) {
-    return res.status(400).json({ ok: false, message: 'UID is required.' });
-  }
-  const key = String(uid);
-  if (!users.has(key)) {
-    return res.status(404).json({ ok: false, message: 'User not found.' });
-  }
-  users.delete(key);
-  userSignals.delete(key);
-  userPositions.delete(key);
-  userConnections.delete(key);
-  signalRecipientActivity.delete(key);
-  addLog('info', `[ADMIN] Deleted UID ${key}.`);
-  await persistState();
-  res.json({ ok: true });
-});
-
-adminRouter.patch('/users/:uid/strategies', async (req, res) => {
-  const { uid } = req.params;
-  const { strategies: selected } = req.body || {};
-  if (!Array.isArray(selected) || !selected.length) {
-    return res.status(400).json({ ok: false, message: 'At least one strategy must be selected.' });
-  }
-  const user = users.get(uid);
-  if (!user) {
-    return res.status(404).json({ ok: false, message: 'User not found.' });
-  }
-  const approved = Array.from(new Set(selected.map(String).filter((id) => strategies.has(id))));
-  user.approvedStrategies = approved;
-  user.updatedAt = nowIso();
-  users.set(uid, user);
-  addLog('info', `[ADMIN] Updated strategies for UID ${uid}: ${approved.join(', ')}.`);
-  await persistState();
-  res.json({ ok: true });
-});
-
-adminRouter.patch('/strategies/:id', async (req, res) => {
-  const { id } = req.params;
-  const strategy = strategies.get(id);
-  if (!strategy) {
-    return res.status(404).json({ ok: false, message: 'Strategy not found.' });
-  }
-  if (typeof req.body?.active === 'boolean') {
-    strategy.active = req.body.active;
-    strategy.updatedAt = nowIso();
-    strategies.set(id, strategy);
-    addLog('info', `[ADMIN] Strategy ${id} set to ${strategy.active ? 'active' : 'inactive'}.`);
-  }
-  await persistState();
-  res.json({ ok: true });
-});
-
-adminRouter.post('/strategies', async (req, res) => {
-  const { name, description } = req.body || {};
-  if (!name || typeof name !== 'string') {
-    return res.status(400).json({ ok: false, message: 'Strategy name is required.' });
-  }
-  const id = randomId('strategy');
-  const record = createStrategyRecord(id, name.trim(), description ? String(description) : undefined, [name]);
-  addLog('info', `[ADMIN] Added strategy ${record.name} (${record.id}).`);
-  await persistState();
-  res.json({ ok: true, strategy: cloneStrategyForClient(record) });
-});
-
-app.use('/api/admin', adminRouter);
-
-const verifyWebhookSecret = (req) => {
-  const headerSecret = req.get('x-webhook-secret');
-  const querySecret = req.params.secret || req.query.secret || req.body?.secret;
-  if (!webhook.secret) return false;
-  return headerSecret === webhook.secret || querySecret === webhook.secret;
-};
-
-app.post(['/webhook', '/webhook/:secret'], (req, res) => {
-  if (webhook.secret && !verifyWebhookSecret(req)) {
-    addLog('error', '[WEBHOOK] Received payload with invalid secret');
-    return res.status(403).json({ ok: false, message: 'Invalid webhook secret.' });
-  }
-
-  const { indicator, strategy: strategyName, name, symbol, ticker, direction, side, action, size, leverage } = req.body || {};
-  const resolvedIndicator = indicator || strategyName || name;
-  const resolvedSymbol = symbol || ticker;
-  const resolvedDirection = direction || side || action;
-
-  if (!resolvedIndicator || !resolvedSymbol || !resolvedDirection) {
-    addLog('error', '[WEBHOOK] Missing indicator, symbol or direction in payload');
-    return res
-      .status(400)
-      .json({ ok: false, message: 'Indicator, symbol, and direction are required.' });
-  }
-
-  let strategy = matchStrategyByIndicator(resolvedIndicator);
-  if (!strategy && webhook.routes.size === 1) {
-    const [onlyStrategy] = webhook.routes;
-    strategy = strategies.get(onlyStrategy) || null;
-  }
-
-  if (!strategy) {
-    addLog('warning', `[WEBHOOK] Unknown indicator '${resolvedIndicator}'.`);
-    return res
-      .status(202)
-      .json({ ok: false, message: 'No strategy matched the incoming indicator.' });
-  }
-
-  if (webhook.routes.size && !webhook.routes.has(strategy.id)) {
-    addLog('warning', `[WEBHOOK] Strategy ${strategy.id} is not currently targeted for delivery.`);
-    addAdminSignal(strategy.id, {
-      id: randomId('sig'),
-      timestamp: nowIso(),
-      action: 'ignored',
-      side: 'blocked',
-      symbol: resolvedSymbol,
-      strategyId: strategy.id,
-      status: 'blocked by admin routing',
-    });
-    return res.json({ ok: true, delivered: 0, message: 'Strategy not targeted.' });
-  }
-
-  const parsed = parseDirection(resolvedDirection);
-  const signal = {
-    id: randomId('sig'),
-    timestamp: nowIso(),
-    indicator: resolvedIndicator,
-    symbol: resolvedSymbol,
-    action: parsed.action,
-    side: parsed.side,
-    size: size === undefined ? undefined : Number(size),
-    leverage: leverage === undefined ? undefined : Number(leverage),
-  };
-
-  const delivery = deliverSignalToUsers(strategy, signal);
-
-  const deliveryRecord = {
-    id: signal.id,
-    timestamp: signal.timestamp,
-    indicator: resolvedIndicator,
-    symbol: resolvedSymbol,
-    action: signal.action,
-    side: signal.side,
-    strategyId: strategy.id,
-    strategyName: strategy.name,
-    recipients: delivery.recipients.slice(),
-  };
-  signalDeliveries.push(deliveryRecord);
-  if (signalDeliveries.length > MAX_DELIVERY_HISTORY) {
-    signalDeliveries.splice(0, signalDeliveries.length - MAX_DELIVERY_HISTORY);
-  }
-
-  const adminRecord = {
-    id: signal.id,
-    timestamp: signal.timestamp,
-    action: signal.action,
-    side: signal.side,
-    symbol: signal.symbol,
-    strategyId: strategy.id,
-    indicator: resolvedIndicator,
-    status:
-      delivery.delivered > 0
-        ? `delivered to ${delivery.delivered} user${delivery.delivered === 1 ? '' : 's'}`
-        : 'no approved recipients',
-  };
-  addAdminSignal(strategy.id, adminRecord);
-  addLog(
-    'info',
-    `[WEBHOOK] ${resolvedIndicator} | ${resolvedSymbol} | ${signal.action.toUpperCase()} ${signal.side.toUpperCase()} → ${delivery.delivered} user(s)`,
-  );
-
-  if (delivery.recipients.length) {
-    const now = Date.now();
-    delivery.recipients.forEach((uid) => signalRecipientActivity.set(uid, now));
-    cleanupSignalRecipientActivity(now);
-  }
-  metricsState.lastWebhook = {
-    timestamp: signal.timestamp,
-    indicator: resolvedIndicator,
-    symbol: resolvedSymbol,
-    action: signal.action,
-    side: signal.side,
-    delivered: delivery.delivered,
-    strategyId: strategy.id,
-    strategyName: strategy.name,
-    recipients: delivery.recipients.slice(),
-  };
-
-  res.json({ ok: true, delivered: delivery.delivered });
-});
-
-app.get('/service-worker.js', (req, res, next) => {
-  const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Service-Worker-Allowed', '/');
-  res.sendFile(serviceWorkerPath, (error) => {
-    if (error) {
-      if (error.code === 'ENOENT') {
-        res.status(404).end();
-        return;
-      }
-      next(error);
     }
-  });
+    
+    async request(method, endpoint, params = {}, data = null) {
+        try {
+            const url = `/api/v4${endpoint}`;
+            const queryString = new URLSearchParams(params).toString();
+            const fullUrl = queryString ? `${url}?${queryString}` : url;
+            
+            const headers = this.generateSignature(
+                method,
+                url,
+                queryString,
+                data ? JSON.stringify(data) : ''
+            );
+            
+            const config = {
+                method: method,
+                url: fullUrl,
+                headers: headers
+            };
+            
+            if (data) {
+                config.data = data;
+            }
+            
+            const response = await this.axiosInstance(config);
+            return response.data;
+            
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    // Account Methods
+    async getAccountInfo() {
+        return await this.request('GET', '/wallet/total_balance');
+    }
+    
+    async getSpotBalances() {
+        return await this.request('GET', '/spot/accounts');
+    }
+    
+    async getBalance(currency) {
+        const balances = await this.getSpotBalances();
+        return balances.find(b => b.currency === currency);
+    }
+    
+    // Trading Methods
+    async createSpotOrder(symbol, side, amount, price = null, type = 'limit') {
+        const orderData = {
+            currency_pair: symbol,
+            side: side.toLowerCase(),
+            amount: amount.toString(),
+            type: type.toLowerCase(),
+            time_in_force: 'gtc',
+            account: 'spot'
+        };
+        
+        if (type === 'limit' && price) {
+            orderData.price = price.toString();
+        }
+        
+        logger.info(`Creating ${side} order: ${symbol} Amount: ${amount} Price: ${price || 'market'}`);
+        return await this.request('POST', '/spot/orders', {}, orderData);
+    }
+    
+    async cancelOrder(orderId, symbol) {
+        return await this.request('DELETE', `/spot/orders/${orderId}`, {
+            currency_pair: symbol
+        });
+    }
+    
+    async cancelAllOrders(symbol = '') {
+        const params = {};
+        if (symbol) {
+            params.currency_pair = symbol;
+        }
+        return await this.request('DELETE', '/spot/orders', params);
+    }
+    
+    async getOpenOrders(symbol = '') {
+        const params = { status: 'open' };
+        if (symbol) {
+            params.currency_pair = symbol;
+        }
+        return await this.request('GET', '/spot/orders', params);
+    }
+    
+    async getOrderHistory(symbol = '', limit = 100) {
+        const params = {
+            status: 'finished',
+            limit: limit
+        };
+        if (symbol) {
+            params.currency_pair = symbol;
+        }
+        return await this.request('GET', '/spot/orders', params);
+    }
+    
+    async getTradeHistory(symbol = '', limit = 100) {
+        const params = { limit: limit };
+        if (symbol) {
+            params.currency_pair = symbol;
+        }
+        return await this.request('GET', '/spot/my_trades', params);
+    }
+    
+    // Market Data (No authentication required)
+    async getMarketPrice(symbol) {
+        try {
+            const response = await axios.get(`${this.baseURL}/spot/tickers`, {
+                params: { currency_pair: symbol }
+            });
+            return response.data[0];
+        } catch (error) {
+            logger.error('Market price fetch error:', error);
+            throw error;
+        }
+    }
+    
+    async getOrderBook(symbol, limit = 10) {
+        try {
+            const response = await axios.get(`${this.baseURL}/spot/order_book`, {
+                params: { 
+                    currency_pair: symbol,
+                    limit: limit
+                }
+            });
+            return response.data;
+        } catch (error) {
+            logger.error('Order book fetch error:', error);
+            throw error;
+        }
+    }
+    
+    async get24hStats(symbol) {
+        try {
+            const response = await axios.get(`${this.baseURL}/spot/tickers`, {
+                params: { currency_pair: symbol }
+            });
+            return response.data[0];
+        } catch (error) {
+            logger.error('24h stats fetch error:', error);
+            throw error;
+        }
+    }
+}
+
+// Initialize Gate.io API
+const gateio = new GateioAPI(config);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Trading Engine
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TradingEngine {
+    constructor() {
+        this.isActive = true;
+        this.positions = new Map();
+        this.orderQueue = [];
+        this.processing = false;
+        this.dailyStats = {
+            trades: 0,
+            successful: 0,
+            failed: 0,
+            pnl: 0,
+            date: new Date().toDateString()
+        };
+    }
+    
+    async executeSignal(signal) {
+        if (!this.isActive) {
+            throw new Error('Trading engine is stopped');
+        }
+        
+        try {
+            logger.info('═══ Executing Trade Signal ═══');
+            logger.info('Signal:', signal);
+            
+            // Format symbol
+            const symbol = this.formatSymbol(signal.symbol);
+            logger.info(`Formatted symbol: ${symbol}`);
+            
+            // Get market price
+            const marketData = await gateio.getMarketPrice(symbol);
+            const currentPrice = parseFloat(marketData.last);
+            logger.info(`Current market price: ${currentPrice}`);
+            
+            // Calculate order amount
+            const orderAmount = await this.calculateOrderAmount(signal, currentPrice);
+            logger.info(`Calculated order amount: ${orderAmount}`);
+            
+            // Risk check
+            const riskCheck = await this.checkRisk(signal, orderAmount, currentPrice);
+            if (!riskCheck.approved) {
+                throw new Error(`Risk check failed: ${riskCheck.reason}`);
+            }
+            
+            // Execute order
+            let order;
+            const action = signal.action.toLowerCase();
+            
+            switch(action) {
+                case 'buy':
+                case 'long':
+                    order = await this.executeBuyOrder(symbol, orderAmount, signal.price || currentPrice);
+                    break;
+                    
+                case 'sell':
+                case 'short':
+                    order = await this.executeSellOrder(symbol, orderAmount, signal.price || currentPrice);
+                    break;
+                    
+                case 'close':
+                case 'close_all':
+                    order = await this.closePosition(symbol);
+                    break;
+                    
+                default:
+                    throw new Error(`Unknown action: ${signal.action}`);
+            }
+            
+            // Update position
+            this.updatePosition(symbol, signal, order);
+            
+            // Update statistics
+            this.updateStatistics(true);
+            
+            // Save trade record
+            await this.saveTradeRecord(signal, order, true);
+            
+            logger.info('✅ Trade executed successfully');
+            logger.info('Order ID:', order.id);
+            
+            return {
+                success: true,
+                orderId: order.id,
+                symbol: symbol,
+                action: action,
+                amount: orderAmount,
+                price: order.price || currentPrice,
+                status: order.status,
+                executedAt: new Date().toISOString()
+            };
+            
+        } catch (error) {
+            logger.error('❌ Trade execution failed:', error.message);
+            
+            // Update statistics
+            this.updateStatistics(false);
+            
+            // Save failed trade record
+            await this.saveTradeRecord(signal, null, false, error.message);
+            
+            // Send alert
+            await this.sendNotification('Trade Failed', `${signal.symbol} ${signal.action} failed: ${error.message}`);
+            
+            throw error;
+        }
+    }
+    
+    formatSymbol(symbol) {
+        if (!symbol) return 'BTC_USDT';
+        
+        // Already in Gate.io format
+        if (symbol.includes('_')) {
+            return symbol.toUpperCase();
+        }
+        
+        // Convert from BTCUSDT to BTC_USDT format
+        const pairs = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'BUSD'];
+        for (const pair of pairs) {
+            if (symbol.toUpperCase().endsWith(pair)) {
+                const base = symbol.substring(0, symbol.length - pair.length);
+                return `${base.toUpperCase()}_${pair}`;
+            }
+        }
+        
+        return symbol.toUpperCase();
+    }
+    
+    async calculateOrderAmount(signal, currentPrice) {
+        // Get balances
+        const balances = await gateio.getSpotBalances();
+        
+        // Parse symbol
+        const symbol = this.formatSymbol(signal.symbol);
+        const [base, quote] = symbol.split('_');
+        
+        // Find quote balance (usually USDT)
+        const quoteBalance = balances.find(b => b.currency === quote);
+        const availableBalance = parseFloat(quoteBalance?.available || 0);
+        
+        logger.info(`Available ${quote} balance: ${availableBalance}`);
+        
+        // Calculate order amount
+        let orderAmount;
+        
+        if (signal.amount) {
+            // Use specified amount
+            orderAmount = parseFloat(signal.amount);
+        } else {
+            // Calculate based on risk percentage
+            const riskPercentage = config.trading.riskPercentage;
+            const orderValue = availableBalance * (riskPercentage / 100);
+            orderAmount = orderValue / currentPrice;
+        }
+        
+        // Apply limits
+        const maxPositionValue = config.trading.maxPositionSize;
+        const maxAmount = maxPositionValue / currentPrice;
+        orderAmount = Math.min(orderAmount, maxAmount);
+        
+        // Check minimum order value
+        const minOrderValue = config.trading.minOrderValue;
+        const orderValue = orderAmount * currentPrice;
+        
+        if (orderValue < minOrderValue) {
+            throw new Error(`Order value too small: ${orderValue.toFixed(2)} USDT (minimum: ${minOrderValue} USDT)`);
+        }
+        
+        // Round to appropriate precision (8 decimals for most pairs)
+        return parseFloat(orderAmount.toFixed(8));
+    }
+    
+    async checkRisk(signal, amount, price) {
+        try {
+            // Check daily trade limit
+            if (this.dailyStats.trades >= 50) {
+                return {
+                    approved: false,
+                    reason: 'Daily trade limit reached (50 trades)'
+                };
+            }
+            
+            // Check position value
+            const positionValue = amount * price;
+            if (positionValue > config.trading.maxPositionSize) {
+                return {
+                    approved: false,
+                    reason: `Position value ${positionValue.toFixed(2)} exceeds limit ${config.trading.maxPositionSize}`
+                };
+            }
+            
+            // Check number of open positions
+            if (this.positions.size >= 10) {
+                return {
+                    approved: false,
+                    reason: 'Maximum number of open positions reached (10)'
+                };
+            }
+            
+            return {
+                approved: true,
+                reason: 'Risk checks passed'
+            };
+            
+        } catch (error) {
+            return {
+                approved: false,
+                reason: `Risk check error: ${error.message}`
+            };
+        }
+    }
+    
+    async executeBuyOrder(symbol, amount, price) {
+        logger.info(`📈 Executing BUY order: ${symbol} Amount: ${amount} @ ${price}`);
+        
+        const orderType = price ? 'limit' : 'market';
+        const order = await gateio.createSpotOrder(symbol, 'buy', amount, price, orderType);
+        
+        logger.info(`Buy order created: ${order.id}`);
+        return order;
+    }
+    
+    async executeSellOrder(symbol, amount, price) {
+        logger.info(`📉 Executing SELL order: ${symbol} Amount: ${amount} @ ${price}`);
+        
+        // Check if we have a position
+        const position = this.positions.get(symbol);
+        if (!position || position.amount <= 0) {
+            // Check actual balance
+            const [base] = symbol.split('_');
+            const balance = await gateio.getBalance(base);
+            
+            if (!balance || parseFloat(balance.available) <= 0) {
+                throw new Error(`No ${base} balance to sell`);
+            }
+            
+            amount = amount || parseFloat(balance.available);
+        } else {
+            amount = amount || position.amount;
+        }
+        
+        const orderType = price ? 'limit' : 'market';
+        const order = await gateio.createSpotOrder(symbol, 'sell', amount, price, orderType);
+        
+        logger.info(`Sell order created: ${order.id}`);
+        return order;
+    }
+    
+    async closePosition(symbol) {
+        logger.info(`Closing position for ${symbol}`);
+        
+        const [base] = symbol.split('_');
+        const balance = await gateio.getBalance(base);
+        
+        if (!balance || parseFloat(balance.available) <= 0) {
+            throw new Error(`No ${base} position to close`);
+        }
+        
+        return await this.executeSellOrder(symbol, parseFloat(balance.available), null);
+    }
+    
+    updatePosition(symbol, signal, order) {
+        const current = this.positions.get(symbol) || {
+            amount: 0,
+            avgPrice: 0,
+            totalCost: 0
+        };
+        
+        const orderAmount = parseFloat(order.amount || 0);
+        const orderPrice = parseFloat(order.price || 0);
+        
+        if (signal.action === 'buy' || signal.action === 'long') {
+            const newAmount = current.amount + orderAmount;
+            const newTotalCost = current.totalCost + (orderAmount * orderPrice);
+            const newAvgPrice = newTotalCost / newAmount;
+            
+            this.positions.set(symbol, {
+                amount: newAmount,
+                avgPrice: newAvgPrice,
+                totalCost: newTotalCost,
+                lastUpdate: new Date().toISOString()
+            });
+            
+        } else if (signal.action === 'sell' || signal.action === 'short' || signal.action === 'close') {
+            const newAmount = Math.max(0, current.amount - orderAmount);
+            
+            if (newAmount === 0) {
+                this.positions.delete(symbol);
+            } else {
+                const soldRatio = orderAmount / current.amount;
+                const newTotalCost = current.totalCost * (1 - soldRatio);
+                
+                this.positions.set(symbol, {
+                    amount: newAmount,
+                    avgPrice: current.avgPrice,
+                    totalCost: newTotalCost,
+                    lastUpdate: new Date().toISOString()
+                });
+            }
+        }
+        
+        logger.info('Position updated:', this.positions.get(symbol));
+    }
+    
+    updateStatistics(success) {
+        const today = new Date().toDateString();
+        if (this.dailyStats.date !== today) {
+            this.dailyStats = {
+                trades: 0,
+                successful: 0,
+                failed: 0,
+                pnl: 0,
+                date: today
+            };
+        }
+        
+        this.dailyStats.trades++;
+        if (success) {
+            this.dailyStats.successful++;
+        } else {
+            this.dailyStats.failed++;
+        }
+    }
+    
+    async saveTradeRecord(signal, order, success, error = null) {
+        const record = {
+            id: Date.now().toString(),
+            signal: signal,
+            order: order,
+            success: success,
+            error: error,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Save to file
+        const dataDir = './data';
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        
+        const tradesFile = path.join(dataDir, 'trades.json');
+        let trades = [];
+        
+        try {
+            if (fs.existsSync(tradesFile)) {
+                const data = fs.readFileSync(tradesFile, 'utf8');
+                trades = JSON.parse(data);
+            }
+        } catch (error) {
+            logger.error('Error reading trades file:', error);
+        }
+        
+        trades.push(record);
+        
+        // Keep only last 1000 trades
+        if (trades.length > 1000) {
+            trades = trades.slice(-1000);
+        }
+        
+        try {
+            fs.writeFileSync(tradesFile, JSON.stringify(trades, null, 2));
+            logger.info('Trade record saved');
+        } catch (error) {
+            logger.error('Error saving trade record:', error);
+        }
+        
+        return record;
+    }
+    
+    async sendNotification(title, message) {
+        // Telegram notification
+        if (config.notifications.telegram.enabled) {
+            try {
+                const url = `https://api.telegram.org/bot${config.notifications.telegram.botToken}/sendMessage`;
+                await axios.post(url, {
+                    chat_id: config.notifications.telegram.chatId,
+                    text: `*${title}*\n${message}`,
+                    parse_mode: 'Markdown'
+                });
+                logger.debug('Telegram notification sent');
+            } catch (error) {
+                logger.error('Telegram notification error:', error.message);
+            }
+        }
+        
+        // Discord notification
+        if (config.notifications.discord.enabled) {
+            try {
+                await axios.post(config.notifications.discord.webhookUrl, {
+                    content: `**${title}**\n${message}`
+                });
+                logger.debug('Discord notification sent');
+            } catch (error) {
+                logger.error('Discord notification error:', error.message);
+            }
+        }
+        
+        // WebSocket notification
+        if (global.io) {
+            global.io.emit('notification', {
+                title,
+                message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    
+    stop() {
+        this.isActive = false;
+        logger.warn('Trading engine stopped');
+    }
+    
+    start() {
+        this.isActive = true;
+        logger.info('Trading engine started');
+    }
+    
+    getStatus() {
+        return {
+            active: this.isActive,
+            positions: Array.from(this.positions.entries()),
+            statistics: this.dailyStats,
+            queueLength: this.orderQueue.length
+        };
+    }
+}
+
+// Initialize Trading Engine
+const tradingEngine = new TradingEngine();
+global.tradingEngine = tradingEngine;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Webhook Validation Middleware
+// ═══════════════════════════════════════════════════════════════════════════
+
+function validateWebhook(req, res, next) {
+    try {
+        // IP Whitelist Check
+        const allowedIPs = config.webhook.allowedIPs;
+        if (allowedIPs.length > 0) {
+            const clientIP = req.ip || 
+                           req.connection.remoteAddress || 
+                           req.headers['x-forwarded-for']?.split(',')[0];
+            
+            logger.info(`Webhook request from IP: ${clientIP}`);
+            
+            const ipAllowed = allowedIPs.some(allowedIP => {
+                return clientIP.includes(allowedIP.replace('::ffff:', ''));
+            });
+            
+            if (!ipAllowed) {
+                logger.warn(`Unauthorized webhook attempt from IP: ${clientIP}`);
+                return res.status(403).json({
+                    error: 'Unauthorized IP address',
+                    yourIP: clientIP
+                });
+            }
+        }
+        
+        // Secret Token Check
+        const webhookSecret = config.webhook.secret;
+        if (webhookSecret) {
+            const providedSecret = req.headers['x-webhook-secret'] ||
+                                 req.headers['authorization'] ||
+                                 req.query.secret ||
+                                 req.body.secret;
+            
+            if (providedSecret !== webhookSecret) {
+                logger.warn('Invalid webhook secret provided');
+                return res.status(401).json({
+                    error: 'Invalid webhook secret'
+                });
+            }
+        }
+        
+        // Request Body Validation
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({
+                error: 'Empty request body'
+            });
+        }
+        
+        logger.info('✅ Webhook validation passed');
+        next();
+        
+    } catch (error) {
+        logger.error('Webhook validation error:', error);
+        res.status(500).json({
+            error: 'Validation error',
+            details: error.message
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Admin Authentication Middleware
+// ═══════════════════════════════════════════════════════════════════════════
+
+function authenticateAdmin(req, res, next) {
+    try {
+        const token = req.headers['authorization'] ||
+                     req.headers['x-admin-token'] ||
+                     req.query.token;
+        
+        const adminToken = config.admin.token;
+        
+        if (!adminToken) {
+            logger.warn('Admin token not configured');
+            return res.status(500).json({
+                error: 'Admin authentication not configured'
+            });
+        }
+        
+        if (token !== adminToken) {
+            logger.warn('Invalid admin token attempt');
+            return res.status(401).json({
+                error: 'Unauthorized'
+            });
+        }
+        
+        next();
+        
+    } catch (error) {
+        logger.error('Auth middleware error:', error);
+        res.status(500).json({
+            error: 'Authentication error'
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Routes
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Root Route
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.use(express.static(path.join(__dirname, 'dist')));
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+// Health Check
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: config.env
+    });
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  addLog('info', `Server successfully started on http://0.0.0.0:${PORT}`);
-  console.log(`Server successfully started on http://0.0.0.0:${PORT}`);
+// ────────────────────────────────────────────────────────────────────────────
+// Webhook Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+// TradingView Webhook
+app.post('/webhook', validateWebhook, async (req, res) => {
+    const startTime = Date.now();
+    
+    try {
+        logger.info('═══ TradingView Webhook Received ═══');
+        logger.info('Request Body:', JSON.stringify(req.body));
+        
+        // Parse signal
+        const signal = parseSignal(req.body);
+        logger.info('Parsed Signal:', signal);
+        
+        // Execute trade
+        const result = await tradingEngine.executeSignal(signal);
+        
+        // Send notification
+        await tradingEngine.sendNotification(
+            '📊 Trade Executed',
+            `${signal.action.toUpperCase()} ${signal.symbol}\nAmount: ${result.amount}\nPrice: ${result.price}\nOrder ID: ${result.orderId}`
+        );
+        
+        // Emit to WebSocket
+        if (global.io) {
+            global.io.emit('trade', {
+                signal: signal,
+                result: result,
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        const executionTime = Date.now() - startTime;
+        logger.info(`✅ Webhook processed in ${executionTime}ms`);
+        
+        res.json({
+            status: 'success',
+            signal: signal,
+            result: result,
+            executionTime: `${executionTime}ms`
+        });
+        
+    } catch (error) {
+        logger.error('❌ Webhook processing error:', error);
+        
+        res.status(500).json({
+            status: 'error',
+            message: error.message,
+            signal: req.body
+        });
+    }
 });
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-  });
+// Alternative webhook endpoints
+app.post('/webhook/tradingview', validateWebhook, async (req, res) => {
+    // Same as /webhook
+    req.url = '/webhook';
+    app.handle(req, res);
 });
+
+// Test webhook
+app.post('/webhook/test', async (req, res) => {
+    try {
+        const testSignal = {
+            action: req.body.action || 'buy',
+            symbol: req.body.symbol || 'BTC_USDT',
+            amount: req.body.amount || 0.0001,
+            price: req.body.price || null,
+            comment: 'Test signal'
+        };
+        
+        logger.info('Test signal:', testSignal);
+        
+        const result = await tradingEngine.executeSignal(testSignal);
+        
+        res.json({
+            status: 'success',
+            signal: testSignal,
+            result: result
+        });
+    } catch (error) {
+        logger.error('Test webhook error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Admin Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+// Admin dashboard
+app.get('/admin/dashboard', authenticateAdmin, async (req, res) => {
+    try {
+        const [balances, openOrders] = await Promise.all([
+            gateio.getSpotBalances(),
+            gateio.getOpenOrders()
+        ]);
+        
+        const engineStatus = tradingEngine.getStatus();
+        
+        res.json({
+            balances: balances.filter(b => parseFloat(b.available) > 0 || parseFloat(b.locked) > 0),
+            openOrders: openOrders,
+            engine: engineStatus,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        logger.error('Dashboard error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Trading engine control
+app.post('/admin/engine/start', authenticateAdmin, (req, res) => {
+    tradingEngine.start();
+    logger.info('Trading engine started by admin');
+    res.json({ status: 'started' });
+});
+
+app.post('/admin/engine/stop', authenticateAdmin, (req, res) => {
+    tradingEngine.stop();
+    logger.warn('Trading engine stopped by admin');
+    res.json({ status: 'stopped' });
+});
+
+// Emergency stop
+app.post('/admin/emergency-stop', authenticateAdmin, async (req, res) => {
+    try {
+        // Stop trading engine
+        tradingEngine.stop();
+        
+        // Cancel all open orders
+        const cancelResult = await gateio.cancelAllOrders();
+        
+        logger.error('EMERGENCY STOP activated by admin');
+        
+        res.json({
+            status: 'emergency_stopped',
+            orders_cancelled: cancelResult,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        logger.error('Emergency stop error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Manual order
+app.post('/admin/manual-order', authenticateAdmin, async (req, res) => {
+    try {
+        const { symbol, side, amount, price, type = 'limit' } = req.body;
+        
+        if (!symbol || !side || !amount) {
+            return res.status(400).json({
+                error: 'Missing required fields: symbol, side, amount'
+            });
+        }
+        
+        const order = await gateio.createSpotOrder(
+            symbol,
+            side,
+            amount,
+            price,
+            type
+        );
+        
+        logger.info('Manual order created:', order);
+        res.json(order);
+    } catch (error) {
+        logger.error('Manual order error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// API Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+// Get market data
+app.get('/api/market/:symbol', async (req, res) => {
+    try {
+        const { symbol } = req.params;
+        const formattedSymbol = tradingEngine.formatSymbol(symbol);
+        
+        const [ticker, orderBook, stats] = await Promise.all([
+            gateio.getMarketPrice(formattedSymbol),
+            gateio.getOrderBook(formattedSymbol, 5),
+            gateio.get24hStats(formattedSymbol)
+        ]);
+        
+        res.json({
+            symbol: formattedSymbol,
+            price: ticker.last,
+            orderBook: orderBook,
+            stats24h: stats,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        logger.error('Market data error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get positions
+app.get('/api/positions', async (req, res) => {
+    try {
+        const balances = await gateio.getSpotBalances();
+        const positions = balances.filter(b =>
+            parseFloat(b.available) > 0 || parseFloat(b.locked) > 0
+        );
+        
+        res.json(positions);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get orders
+app.get('/api/orders', async (req, res) => {
+    try {
+        const { symbol, status = 'open' } = req.query;
+        
+        let orders;
+        if (status === 'open') {
+            orders = await gateio.getOpenOrders(symbol);
+        } else {
+            orders = await gateio.getOrderHistory(symbol);
+        }
+        
+        res.json(orders);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get trade history
+app.get('/api/trades', async (req, res) => {
+    try {
+        const { symbol, limit = 100 } = req.query;
+        const trades = await gateio.getTradeHistory(symbol, parseInt(limit));
+        res.json(trades);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Status Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+// System status
+app.get('/api/status/system', (req, res) => {
+    const os = require('os');
+    
+    res.json({
+        status: 'online',
+        uptime: process.uptime(),
+        memory: {
+            used: process.memoryUsage().heapUsed / 1024 / 1024,
+            total: process.memoryUsage().heapTotal / 1024 / 1024,
+            system: os.totalmem() / 1024 / 1024 / 1024
+        },
+        cpu: os.loadavg(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// API connection status
+app.get('/api/status/api', async (req, res) => {
+    try {
+        await gateio.getAccountInfo();
+        res.json({
+            gateio: 'connected',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(503).json({
+            gateio: 'disconnected',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+// Trading engine status
+app.get('/api/status/engine', (req, res) => {
+    const status = tradingEngine.getStatus();
+    res.json(status);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+function parseSignal(body) {
+    let parsed = {};
+    
+    // Handle string body
+    if (typeof body === 'string') {
+        try {
+            // Try JSON parse
+            parsed = JSON.parse(body);
+        } catch (e) {
+            // Parse line format
+            const lines = body.split('\n');
+            lines.forEach(line => {
+                const [key, value] = line.split(':').map(s => s.trim());
+                if (key && value) {
+                    parsed[key.toLowerCase()] = value;
+                }
+            });
+        }
+    } else {
+        parsed = body;
+    }
+    
+    // Map TradingView fields
+    return {
+        action: parsed.action || parsed.side || parsed.order || 'buy',
+        symbol: parsed.symbol || parsed.ticker || parsed.pair || 'BTC_USDT',
+        price: parseFloat(parsed.price || parsed.close) || null,
+        amount: parseFloat(parsed.amount || parsed.contracts || parsed.size) || null,
+        leverage: parseFloat(parsed.leverage) || 1,
+        stopLoss: parseFloat(parsed.stop_loss || parsed.sl) || null,
+        takeProfit: parseFloat(parsed.take_profit || parsed.tp) || null,
+        comment: parsed.comment || parsed.message || '',
+        exchange: parsed.exchange || 'spot',
+        strategy: parsed.strategy || 'manual',
+        timestamp: new Date().toISOString()
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Socket.IO Events
+// ═══════════════════════════════════════════════════════════════════════════
+
+io.on('connection', (socket) => {
+    logger.info(`Client connected: ${socket.id}`);
+    
+    // Join rooms
+    socket.on('subscribe', (data) => {
+        socket.join(data.room);
+        logger.info(`Client ${socket.id} joined room: ${data.room}`);
+    });
+    
+    // Get engine status
+    socket.on('get-status', () => {
+        socket.emit('status', tradingEngine.getStatus());
+    });
+    
+    // Disconnect
+    socket.on('disconnect', () => {
+        logger.info(`Client disconnected: ${socket.id}`);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Error Handler
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.use((err, req, res, next) => {
+    logger.error('Unhandled error:', err);
+    
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: config.env === 'development' ? err.message : 'Something went wrong',
+        ...(config.env === 'development' && { stack: err.stack })
+    });
+});
+
+// 404 Handler
+app.use((req, res) => {
+    res.status(404).json({
+        error: 'Not Found',
+        path: req.path
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Server Start
+// ═══════════════════════════════════════════════════════════════════════════
+
+server.listen(config.port, () => {
+    logger.info(`
+    ═══════════════════════════════════════════════════════════════════
+    🚀 Gate.io Trading Bot Server Started
+    ═══════════════════════════════════════════════════════════════════
+    📍 Port: ${config.port}
+    🌍 Environment: ${config.env}
+    📅 Started: ${new Date().toISOString()}
+    📡 Webhook URL: http://localhost:${config.port}/webhook
+    ═══════════════════════════════════════════════════════════════════
+    `);
+    
+    // Configuration check
+    console.log('Configuration Status:');
+    console.log('  Gate.io API:', config.gateio.apiKey ? '✅ Configured' : '❌ Missing');
+    console.log('  Webhook Secret:', config.webhook.secret ? '✅ Configured' : '❌ Missing');
+    console.log('  Admin Token:', config.admin.token ? '✅ Configured' : '❌ Missing');
+    console.log('  Telegram:', config.notifications.telegram.enabled ? '✅ Enabled' : '⚪ Disabled');
+    console.log('  Discord:', config.notifications.discord.enabled ? '✅ Enabled' : '⚪ Disabled');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Graceful Shutdown
+// ═══════════════════════════════════════════════════════════════════════════
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+async function shutdown() {
+    logger.info('Shutting down gracefully...');
+    
+    // Stop trading engine
+    tradingEngine.stop();
+    
+    // Close server
+    server.close(() => {
+        logger.info('Server closed');
+        process.exit(0);
+    });
+    
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+        logger.error('Forced shutdown');
+        process.exit(1);
+    }, 10000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Export for testing
+// ═══════════════════════════════════════════════════════════════════════════
+
+module.exports = {
+    app,
+    server,
+    gateio,
+    tradingEngine
+};
