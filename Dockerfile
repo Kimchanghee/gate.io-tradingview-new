@@ -1,21 +1,25 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# package.json만 먼저 복사
 COPY package*.json ./
+RUN npm install
 
-# 의존성 설치
-RUN npm install --production
-
-# 앱 코드 복사
 COPY . .
+RUN npm run build
 
-# PORT 환경변수 (Cloud Run이 덮어씀)
+# Remove devDependencies before moving into the runtime image
+RUN npm prune --omit=dev
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
 ENV PORT=8080
 
-# 포트 노출
+COPY --from=builder /app .
+
 EXPOSE 8080
 
-# 앱 실행
 CMD ["node", "server-simple.js"]
