@@ -68,6 +68,27 @@ const resolveDashboardFile = () => {
             lastResolvedDashboard = publicIndexPath;
         }
         return publicIndexPath;
+=======
+// 정적 파일 경로 구성 (dist 우선, 없으면 public)
+const staticDirectories = [
+    path.join(__dirname, 'dist'),
+    path.join(__dirname, 'public')
+].filter(dir => fs.existsSync(dir));
+
+staticDirectories.forEach(dir => {
+    app.use(express.static(dir));
+});
+
+const resolveDashboardFile = () => {
+    const candidates = [
+        path.join(__dirname, 'dist', 'index.html'),
+        path.join(__dirname, 'public', 'index.html')
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
     }
 
     return null;
