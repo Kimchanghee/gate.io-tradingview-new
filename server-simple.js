@@ -9,6 +9,66 @@ const PORT = process.env.PORT || 8080;
 // 미들웨어
 app.use(express.json());
 
+const distDir = path.join(__dirname, 'dist');
+const publicDir = path.join(__dirname, 'public');
+const distIndexPath = path.join(distDir, 'index.html');
+const publicIndexPath = path.join(publicDir, 'index.html');
+const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
+
+// 정적 파일 경로 구성 (index.html은 직접 서빙)
+[
+    distDir,
+    publicDir
+]
+    .filter((dir) => fs.existsSync(dir))
+    .forEach((dir) => {
+        app.use(express.static(dir, { index: false }));
+    });
+
+if (fs.existsSync(serviceWorkerPath)) {
+    app.get('/service-worker.js', (req, res) => {
+        res.type('application/javascript').sendFile(serviceWorkerPath);
+    });
+}
+
+const fileExists = (filePath) => {
+    try {
+        const stats = fs.statSync(filePath);
+        return stats.isFile();
+    } catch (err) {
+        if (err.code !== 'ENOENT') {
+            console.error(`Failed to stat ${filePath}`, err);
+        }
+        return false;
+    }
+};
+
+let loggedMissingBundle = false;
+let lastResolvedDashboard = null;
+
+const resolveDashboardFile = () => {
+    if (fileExists(distIndexPath)) {
+        if (lastResolvedDashboard !== distIndexPath) {
+            console.log(`Serving dashboard from ${distIndexPath}`);
+            lastResolvedDashboard = distIndexPath;
+        }
+        return distIndexPath;
+    }
+
+    if (!loggedMissingBundle) {
+        loggedMissingBundle = true;
+        console.error(
+            'Dashboard bundle not found at dist/index.html. Run `npm run build` before deploying the simple server.',
+        );
+    }
+
+    if (process.env.ALLOW_PUBLIC_PLACEHOLDER === 'true' && fileExists(publicIndexPath)) {
+        if (lastResolvedDashboard !== publicIndexPath) {
+            console.warn('Falling back to public/index.html placeholder because built assets are missing.');
+            lastResolvedDashboard = publicIndexPath;
+        }
+        return publicIndexPath;
+=======
 // 정적 파일 경로 구성 (dist 우선, 없으면 public)
 const staticDirectories = [
     path.join(__dirname, 'dist'),
@@ -73,7 +133,10 @@ const serveDashboard = (req, res) => {
     const dashboardFile = resolveDashboardFile();
 
     if (!dashboardFile) {
-        return respondWithStatusJson(res);
+        return res
+            .status(500)
+            .type('text/plain; charset=utf-8')
+            .send('Dashboard bundle is missing. Please run `npm run build` before starting the server.');
     }
 
     return res.sendFile(dashboardFile);
