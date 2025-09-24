@@ -74,6 +74,7 @@ const resolveDashboardFile = () => {
 };
 
 const shouldReturnJson = (req) => {
+    if ((req.query.format || '').toLowerCase() === 'json') {
     if (req.query.format === 'json') {
         return true;
     }
@@ -84,6 +85,13 @@ const shouldReturnJson = (req) => {
         return false;
     }
 
+    // HTML을 받아들일 수 있다면 항상 UI를 우선적으로 반환한다.
+    if (req.accepts('html')) {
+        return false;
+    }
+
+    // HTML을 명시하지 않고 JSON만 허용할 때만 상태 JSON을 반환한다.
+    if (req.accepts('json')) {
     const accepts = req.accepts(['html', 'json']);
     if (accepts === 'json') {
         return true;
