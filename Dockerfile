@@ -19,6 +19,7 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 COPY --from=builder /app .
+RUN rm -rf node_modules && npm ci --omit=dev
 
 EXPOSE 8080
 
