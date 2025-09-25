@@ -109,6 +109,14 @@ const appendLog = (message, level = 'info') => {
     }
 };
 
+const mapStrategyIdsToNamedList = (ids = []) =>
+    ids
+        .filter((id) => typeof id === 'string' && id)
+        .map((id) => ({
+            id,
+            name: dataStore.strategies.get(id)?.name || id
+        }));
+
 const countActiveVisitors = () => {
     const now = Date.now();
     const THRESHOLD = 1000 * 60 * 5; // 5 minutes
@@ -131,14 +139,6 @@ const refreshMetricsSnapshot = () => {
     const approvedUsers = Array.from(dataStore.users.values()).filter((user) => user.status === 'approved');
     dataStore.metrics.signalRecipients.active = approvedUsers.length;
 };
-
-const mapStrategyIdsToNamedList = (ids = []) =>
-    ids
-        .filter((id) => typeof id === 'string' && id)
-        .map((id) => ({
-            id,
-            name: dataStore.strategies.get(id)?.name || id
-        }));
 
 const serialiseStrategies = () =>
     Array.from(dataStore.strategies.values()).map((strategy) => ({
@@ -597,8 +597,12 @@ adminApi.post('/users/approve', (req, res) => {
     if (!user.accessKey) {
         user.accessKey = generateAccessKey();
     }
-    if (!user.approvedStrategies.length && user.requestedStrategies.length) {
-        user.approvedStrategies = user.requestedStrategies.slice();
+    if (!user.approvedStrategies.length) {
+        user.approvedStrategies = user.requestedStrategies.length
+            ? user.requestedStrategies.slice()
+            : serialiseStrategies()
+                  .filter((strategy) => strategy.active)
+                  .map((strategy) => strategy.id);
     }
 
     refreshMetricsSnapshot();
