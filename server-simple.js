@@ -15,6 +15,7 @@ const errorHandler = require('./middleware/errorHandler');
 const statusRouter = require('./routes/status');
 const tradingRouter = require('./routes/trading');
 const webhookRouter = require('./routes/webhook');
+const database = require('./utils/database');
 
 let logger;
 try {
@@ -84,6 +85,138 @@ const dataStore = {
     }
 };
 
+const serialiseStateForPersistence = () => ({
+    logs: dataStore.logs.slice(),
+    strategies: Array.from(dataStore.strategies.values()),
+    users: Array.from(dataStore.users.values()).map((user) => ({ ...user })),
+    signals: dataStore.signals.slice(),
+    webhook: { ...dataStore.webhook },
+    webhookDeliveries: dataStore.webhookDeliveries.slice(),
+    metrics: {
+        ...dataStore.metrics,
+        sessions: Array.from(dataStore.metrics.sessions.values()).map((session) => ({ ...session }))
+    }
+});
+
+let persistTimer = null;
+const schedulePersist = () => {
+    if (persistTimer) {
+        clearTimeout(persistTimer);
+    }
+
+    persistTimer = setTimeout(() => {
+        persistTimer = null;
+        database
+            .saveState(serialiseStateForPersistence())
+            .catch((error) => {
+                if (logger && typeof logger.error === 'function') {
+                    logger.error('Failed to persist application state', error);
+                } else {
+                    // eslint-disable-next-line no-console
+                    console.error('Failed to persist application state', error);
+                }
+            });
+    }, 200);
+};
+
+const hydrateDataStore = async () => {
+    try {
+        const savedState = await database.getState();
+        if (!savedState || typeof savedState !== 'object') {
+            return;
+        }
+
+        if (Array.isArray(savedState.logs)) {
+            dataStore.logs.splice(0, dataStore.logs.length, ...savedState.logs);
+        }
+
+        if (Array.isArray(savedState.strategies)) {
+            dataStore.strategies.clear();
+            savedState.strategies.forEach((strategy) => {
+                if (strategy && strategy.id) {
+                    dataStore.strategies.set(strategy.id, { ...strategy });
+                }
+            });
+        }
+
+        if (Array.isArray(savedState.users)) {
+            dataStore.users.clear();
+            savedState.users.forEach((user) => {
+                if (user && user.uid) {
+                    dataStore.users.set(user.uid, {
+                        requestedStrategies: [],
+                        approvedStrategies: [],
+                        signals: [],
+                        positions: [],
+                        autoTradingEnabled: false,
+                        ...user
+                    });
+                }
+            });
+        }
+
+        if (Array.isArray(savedState.signals)) {
+            dataStore.signals.splice(0, dataStore.signals.length, ...savedState.signals);
+        }
+
+        if (savedState.webhook) {
+            dataStore.webhook = {
+                url: null,
+                secret: null,
+                createdAt: null,
+                updatedAt: null,
+                routes: [],
+                ...savedState.webhook
+            };
+        }
+
+        if (Array.isArray(savedState.webhookDeliveries)) {
+            dataStore.webhookDeliveries.splice(0, dataStore.webhookDeliveries.length, ...savedState.webhookDeliveries);
+        }
+
+        if (savedState.metrics && typeof savedState.metrics === 'object') {
+            dataStore.metrics.totalVisits = Number(savedState.metrics.totalVisits || 0);
+            dataStore.metrics.lastVisitAt = savedState.metrics.lastVisitAt || null;
+            dataStore.metrics.lastSignal = savedState.metrics.lastSignal || null;
+
+            if (Array.isArray(savedState.metrics.sessions)) {
+                dataStore.metrics.sessions = new Map(
+                    savedState.metrics.sessions
+                        .filter((session) => session && session.id)
+                        .map((session) => [session.id, { ...session }])
+                );
+            }
+
+            if (savedState.metrics.signalRecipients) {
+                dataStore.metrics.signalRecipients = {
+                    active: Number(savedState.metrics.signalRecipients.active || 0),
+                    lastSignalAt: savedState.metrics.signalRecipients.lastSignalAt || null,
+                    lastDeliveredCount: Number(savedState.metrics.signalRecipients.lastDeliveredCount || 0)
+                };
+            }
+
+            if (savedState.metrics.visitors) {
+                dataStore.metrics.visitors = {
+                    active: Number(savedState.metrics.visitors.active || 0),
+                    totalSessions: Number(savedState.metrics.visitors.totalSessions || 0),
+                    lastVisitAt: savedState.metrics.visitors.lastVisitAt || null
+                };
+            }
+        }
+
+        refreshMetricsSnapshot();
+    } catch (error) {
+        if (logger && typeof logger.warn === 'function') {
+            logger.warn('Failed to hydrate data store from disk:', error.message);
+        } else {
+            // eslint-disable-next-line no-console
+            console.warn('Failed to hydrate data store from disk:', error.message);
+        }
+    }
+};
+
+hydrateDataStore();
+
 const ADMIN_TOKEN = normaliseString(
     process.env.ADMIN_TOKEN || process.env.ADMIN_SECRET || process.env.ADMIN_KEY,
     'Ckdgml9788@'
@@ -107,6 +240,8 @@ const appendLog = (message, level = 'info') => {
     if (dataStore.logs.length > 500) {
         dataStore.logs.splice(0, dataStore.logs.length - 500);
     }
+
+    schedulePersist();
 };
 
 const mapStrategyIdsToNamedList = (ids = []) =>
@@ -138,6 +273,8 @@ const refreshMetricsSnapshot = () => {
 
     const approvedUsers = Array.from(dataStore.users.values()).filter((user) => user.status === 'approved');
     dataStore.metrics.signalRecipients.active = approvedUsers.length;
+
+    schedulePersist();
 };
 
 const serialiseStrategies = () =>
@@ -183,6 +320,8 @@ const ensureUserExists = (uid) => {
             signals: [],
             positions: []
         });
+
+        schedulePersist();
     }
 
     return dataStore.users.get(key);
@@ -327,6 +466,7 @@ app.post(['/api/register', '/register'], (req, res) => {
     user.status = 'pending';
     user.updatedAt = nowIsoString();
     appendLog(`[USER] UID ${uid} registration requested.`);
+    schedulePersist();
 
     return res.json({
         ok: true,
@@ -383,6 +523,7 @@ app.post('/api/connect', (req, res) => {
     user.apiConnectedAt = nowIsoString();
     user.network = resolvedNetwork;
     appendLog(`[API] UID ${user.uid} connected to ${resolvedNetwork}.`);
+    schedulePersist();
 
     res.json({
         ok: true,
@@ -404,6 +545,7 @@ app.post('/api/disconnect', (req, res) => {
     user.apiConnectedAt = null;
     user.autoTradingEnabled = false;
     appendLog(`[API] UID ${user.uid} disconnected.`);
+    schedulePersist();
 
     res.json({ ok: true });
 });
@@ -431,6 +573,7 @@ app.post('/api/trading/auto', (req, res) => {
     appendLog(`[USER] UID ${user.uid} auto-trading ${user.autoTradingEnabled ? 'enabled' : 'disabled'}.`);
 
     res.json({ ok: true, autoTradingEnabled: user.autoTradingEnabled });
+    schedulePersist();
 });
 
 const adminAuthMiddleware = (req, res, next) => {
@@ -535,6 +678,7 @@ adminApi.post('/webhook', (req, res) => {
         .map((strategy) => strategy.id);
 
     appendLog('[WEBHOOK] 새 웹훅 URL이 생성되었습니다.');
+    schedulePersist();
 
     res.json({
         url: webhookUrl,
@@ -553,6 +697,7 @@ adminApi.put('/webhook/routes', (req, res) => {
     dataStore.webhook.updatedAt = nowIsoString();
 
     appendLog('[WEBHOOK] 전달 대상 전략이 업데이트되었습니다.');
+    schedulePersist();
 
     res.json({ ok: true, routes: dataStore.webhook.routes });
 });
@@ -584,6 +729,7 @@ adminApi.post('/users/approve', (req, res) => {
 
     refreshMetricsSnapshot();
     appendLog(`[ADMIN] UID ${uid}가 승인되었습니다.`);
+    schedulePersist();
 
     res.json({ ok: true, status: user.status, accessKey: user.accessKey });
 });
@@ -603,6 +749,7 @@ adminApi.post('/users/deny', (req, res) => {
 
     refreshMetricsSnapshot();
     appendLog(`[ADMIN] UID ${uid}가 거절되었습니다.`, 'warn');
+    schedulePersist();
 
     res.json({ ok: true, status: user.status });
 });
@@ -616,6 +763,7 @@ adminApi.delete('/users/:uid', (req, res) => {
     dataStore.users.delete(uid);
     refreshMetricsSnapshot();
     appendLog(`[ADMIN] UID ${uid}가 삭제되었습니다.`, 'warn');
+    schedulePersist();
 
     res.json({ ok: true });
 });
@@ -647,6 +795,7 @@ adminApi.post('/strategies', (req, res) => {
 
     dataStore.strategies.set(id, strategy);
     appendLog(`[ADMIN] 새 전략 ${name}이(가) 추가되었습니다.`);
+    schedulePersist();
 
     res.json({ ok: true, strategy });
 });
@@ -663,6 +812,7 @@ adminApi.patch('/strategies/:id', (req, res) => {
     strategy.updatedAt = nowIsoString();
 
     appendLog(`[ADMIN] 전략 ${strategy.name}의 상태가 업데이트되었습니다.`);
+    schedulePersist();
 
     res.json({ ok: true, strategy });
 });
