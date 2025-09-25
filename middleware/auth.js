@@ -35,13 +35,13 @@ function authenticateAdmin(req, res, next) {
                 error: 'Unauthorized'
             });
         }
-        
+
         next();
-        
+
     } catch (error) {
         logger.error('Auth middleware error:', error);
-        res.status(500).json({ 
-            error: 'Authentication error' 
+        res.status(500).json({
+            error: 'Authentication error'
         });
     }
 }
