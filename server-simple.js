@@ -45,6 +45,7 @@ const buildEmptyAccounts = () => ({
     totalEstimatedValue: 0
 });
 
+
 const nowIsoString = () => new Date().toISOString();
 
 const generateLogEntry = (message, level = 'info') => ({
@@ -578,83 +579,7 @@ if (fs.existsSync(serviceWorkerPath)) {
     });
 }
 
-const fileExists = (filePath) => {
-    try {
-        const stats = fs.statSync(filePath);
-        return stats.isFile();
-    } catch (err) {
-        if (err.code !== 'ENOENT') {
-            console.error(`Failed to stat ${filePath}`, err);
-        }
-        return false;
-    }
-};
-
-let loggedMissingBundle = false;
-let lastResolvedDashboard = null;
-
-const resolveDashboardFile = () => {
-    if (fileExists(distIndexPath)) {
-        if (lastResolvedDashboard !== distIndexPath) {
-            console.log(`Serving dashboard from ${distIndexPath}`);
-            lastResolvedDashboard = distIndexPath;
-        }
-        return distIndexPath;
-    }
-
-    if (!loggedMissingBundle) {
-        loggedMissingBundle = true;
-        console.error(
-            'Dashboard bundle not found at dist/index.html. Run `npm run build` before deploying the simple server.',
-        );
-    }
-
-    if (process.env.ALLOW_PUBLIC_PLACEHOLDER === 'true' && fileExists(publicIndexPath)) {
-        if (lastResolvedDashboard !== publicIndexPath) {
-            console.warn('Falling back to public/index.html placeholder because built assets are missing.');
-            lastResolvedDashboard = publicIndexPath;
-        }
-        return publicIndexPath;
-    }
-
-    return null;
-};
-
-const shouldReturnJson = (req) => {
-    if ((req.query.format || '').toLowerCase() === 'json') {
-        return true;
-    }
-
-    const acceptHeader = req.headers.accept || '';
-    if (!acceptHeader) {
-        // 기본적으로 브라우저는 text/html을 요청하므로, 명시적인 Accept가 없으면 HTML 반환
-        return false;
-    }
-
-    // HTML을 받아들일 수 있다면 항상 UI를 우선적으로 반환한다.
-    if (req.accepts('html')) {
-        return false;
-    }
-
-    // HTML을 명시하지 않고 JSON만 허용할 때만 상태 JSON을 반환한다.
-    if (req.accepts('json')) {
-        return true;
-    }
-
-    return false;
-};
-
-const respondWithStatusJson = (res) => {
-    res.json({
-        message: 'Gate.io Trading Bot is running',
-        port: PORT,
-        timestamp: new Date().toISOString()
-    });
-};
-
-const serveDashboard = (req, res) => {
-    if (shouldReturnJson(req)) {
-        return respondWithStatusJson(res);
+@@ -149,50 +658,79 @@ const serveDashboard = (req, res) => {
     }
 
     const dashboardFile = resolveDashboardFile();
@@ -734,21 +659,7 @@ app.post('/api/connect', (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_credentials',
-            message: 'API Key와 Secret을 모두 입력해주세요.'
-        });
-    }
-
-    const network = resolveNetwork(isTestnet);
-    const apiBaseUrl = network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
-
-    console.log('Received connect request', {
-        hasUid: !!uid,
-        hasAccessKey: !!accessKey,
-        network
-    });
-
-    return res.json({
-        ok: true,
+@@ -214,30 +752,32 @@ app.post('/api/connect', (req, res) => {
         message: 'Gate.io API 연결이 설정되었습니다.',
         network,
         apiBaseUrl,
