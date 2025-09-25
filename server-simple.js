@@ -238,7 +238,12 @@ const resolveApiBaseUrl = (network) =>
         ? 'https://fx-api-testnet.gateio.ws/api/v4'
         : 'https://api.gateio.ws/api/v4';
 
-const autoApproveRegistrations = (normaliseString(process.env.AUTO_APPROVE_REGISTRATIONS) || '').toLowerCase() === 'true';
+const respondWithAuthError = (res, error, status, defaultMessage) =>
+    res.status(status).json({
+        ok: false,
+        code: error,
+        message: defaultMessage
+    });
 
 app.disable('x-powered-by');
 
@@ -265,7 +270,8 @@ app.get(['/api/logs', '/logs'], (req, res) => {
 
 app.post(['/api/metrics/visit', '/metrics/visit'], (req, res) => {
     const providedSessionId = normaliseString(req.body?.sessionId);
-    const sessionId = providedSessionId || (crypto.randomUUID ? crypto.randomUUID() : `session_${Math.random().toString(16).slice(2, 10)}`);
+    const sessionId =
+        providedSessionId || (crypto.randomUUID ? crypto.randomUUID() : `session_${Math.random().toString(16).slice(2, 10)}`);
     const pathVisited = normaliseString(req.body?.path, '/');
     const referrer = normaliseString(req.body?.referrer);
 
@@ -322,37 +328,12 @@ app.post(['/api/register', '/register'], (req, res) => {
     user.updatedAt = nowIsoString();
     appendLog(`[USER] UID ${uid} registration requested.`);
 
-    if (autoApproveRegistrations) {
-        user.status = 'approved';
-        user.updatedAt = nowIsoString();
-        user.approvedAt = nowIsoString();
-        if (!user.accessKey) {
-            user.accessKey = generateAccessKey();
-        }
-        refreshMetricsSnapshot();
-        appendLog(`[USER] UID ${uid} auto-approved via registration.`);
-
-        return res.json({
-            ok: true,
-            status: user.status,
-            message: '등록이 승인되었습니다.',
-            accessKey: user.accessKey
-        });
-    }
-
     return res.json({
         ok: true,
         status: user.status,
         message: '등록 요청이 접수되었습니다.'
     });
 });
-
-const respondWithAuthError = (res, error, status, defaultMessage) =>
-    res.status(status).json({
-        ok: false,
-        code: error,
-        message: defaultMessage
-    });
 
 app.get(['/api/user/signals', '/signals'], (req, res) => {
     const { user, error, status } = resolveUserForCredentialCheck(req.query.uid, req.query.key);
@@ -400,6 +381,7 @@ app.post('/api/connect', (req, res) => {
 
     const resolvedNetwork = resolveNetwork(network);
     user.apiConnectedAt = nowIsoString();
+    user.network = resolvedNetwork;
     appendLog(`[API] UID ${user.uid} connected to ${resolvedNetwork}.`);
 
     res.json({
@@ -419,6 +401,7 @@ app.post('/api/disconnect', (req, res) => {
         return respondWithAuthError(res, error, status, '연결을 해제하지 못했습니다.');
     }
 
+    user.apiConnectedAt = null;
     user.autoTradingEnabled = false;
     appendLog(`[API] UID ${user.uid} disconnected.`);
 
@@ -452,7 +435,7 @@ app.post('/api/trading/auto', (req, res) => {
 
 const adminAuthMiddleware = (req, res, next) => {
     const token = extractToken(req.headers['x-admin-token'])
-        || extractToken(req.headers['authorization'])
+        || extractToken(req.headers.authorization)
         || extractToken(req.query.token);
 
     if (!token || token !== ADMIN_TOKEN) {
@@ -510,12 +493,6 @@ adminApi.get('/metrics', (req, res) => {
             issues: dataStore.webhook.url ? [] : ['웹훅 URL이 설정되지 않았습니다.'],
             routes: dataStore.webhook.routes,
             lastSignal: dataStore.metrics.lastSignal || null
-        },
-        googleSheets: {
-            configured: false,
-            lastStatus: 'disabled',
-            lastSyncAt: null,
-            lastError: null
         }
     });
 });
@@ -525,7 +502,7 @@ adminApi.get('/webhook', (req, res) => {
         return res.status(404).json({ ok: false, message: 'Webhook not configured' });
     }
 
-    return res.json({
+    res.json({
         url: dataStore.webhook.url,
         secret: dataStore.webhook.secret,
         createdAt: dataStore.webhook.createdAt,
@@ -694,17 +671,15 @@ app.use('/api/admin', adminLimiter, adminApi);
 
 const distDir = path.join(__dirname, 'dist');
 const publicDir = path.join(__dirname, 'public');
-const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
 const distIndexPath = path.join(distDir, 'index.html');
 const publicIndexPath = path.join(publicDir, 'index.html');
+const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
 
-if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir, { index: false }));
-}
-
-if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir, { index: false }));
-}
+[distDir, publicDir]
+    .filter((dir) => fs.existsSync(dir))
+    .forEach((dir) => {
+        app.use(express.static(dir, { index: false }));
+    });
 
 if (fs.existsSync(serviceWorkerPath)) {
     app.get('/service-worker.js', (req, res) => {
