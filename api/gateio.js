@@ -2,16 +2,18 @@ const crypto = require('crypto');
 const axios = require('axios');
 const logger = require('../utils/logger');
 
+const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
+
 class GateioAPI {
     constructor() {
-        this.apiKey = process.env.GATE_API_KEY;
-        this.apiSecret = process.env.GATE_API_SECRET;
-        this.baseURL = process.env.GATE_API_URL || 'https://api.gateio.ws/api/v4';
-        
+        this.apiKey = process.env.GATE_API_KEY || '';
+        this.apiSecret = process.env.GATE_API_SECRET || '';
+        this.baseURL = trimTrailingSlash(process.env.GATE_API_URL || 'https://api.gateio.ws');
+
         if (!this.apiKey || !this.apiSecret) {
-            throw new Error('Gate.io API credentials not configured');
+            logger.warn('Gate.io API credentials not configured. Requests will fail until credentials are provided.');
         }
-        
+
         this.axiosInstance = axios.create({
             baseURL: this.baseURL,
             timeout: 10000,
@@ -72,21 +74,31 @@ class GateioAPI {
         };
     }
 
+    ensureCredentials() {
+        if (!this.apiKey || !this.apiSecret) {
+            const error = new Error('Gate.io API credentials not configured');
+            error.code = 'gate_credentials_missing';
+            throw error;
+        }
+    }
+
     async request(method, endpoint, params = {}, data = null) {
         try {
-            const url = `/api/v4${endpoint}`;
+            this.ensureCredentials();
+
+            const normalisedEndpoint = endpoint.startsWith('/api/v4') ? endpoint : `/api/v4${endpoint}`;
             const queryString = new URLSearchParams(params).toString();
-            const fullUrl = queryString ? `${url}?${queryString}` : url;
-            
+            const fullUrl = queryString ? `${normalisedEndpoint}?${queryString}` : normalisedEndpoint;
+
             const headers = this.generateSignature(
                 method,
-                url,
+                normalisedEndpoint,
                 queryString,
                 data ? JSON.stringify(data) : ''
             );
-            
+
             const config = {
-                method: method,
+                method: method.toUpperCase(),
                 url: fullUrl,
                 headers: headers
             };
