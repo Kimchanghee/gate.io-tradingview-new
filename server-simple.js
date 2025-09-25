@@ -45,90 +45,8 @@ const buildEmptyAccounts = () => ({
     totalEstimatedValue: 0
 });
 
+
 const nowIsoString = () => new Date().toISOString();
-
-const defaultStrategies = [
-    {
-        id: 'btc-scalping-v1',
-        name: 'BTC USDT 스캘핑 전략',
-        description: '고빈도 스캘핑 전략으로 BTC_USDT 선물 포지션을 관리합니다.',
-        active: true,
-        createdAt: nowIsoString(),
-        updatedAt: nowIsoString()
-    },
-    {
-        id: 'eth-swing-v1',
-        name: 'ETH 스윙 전략',
-        description: 'ETHUSDT 스윙 트레이딩 전략으로 2시간 주기를 사용합니다.',
-        active: true,
-        createdAt: nowIsoString(),
-        updatedAt: nowIsoString()
-    },
-    {
-        id: 'macro-arbitrage',
-        name: '거시 아비트라지',
-        description: '시장 변동성 지표 기반으로 포지션을 분산합니다.',
-        active: true,
-        createdAt: nowIsoString(),
-        updatedAt: nowIsoString()
-    }
-];
-
-const defaultSignals = [
-    {
-        id: 'sig-001',
-        timestamp: nowIsoString(),
-        action: 'open',
-        side: 'buy',
-        symbol: 'BTC_USDT',
-        size: 100,
-        leverage: 10,
-        status: 'delivered',
-        strategyId: 'btc-scalping-v1',
-        indicator: 'BTC Scalping - 15m',
-        autoTradingExecuted: true
-    },
-    {
-        id: 'sig-002',
-        timestamp: nowIsoString(),
-        action: 'close',
-        side: 'sell',
-        symbol: 'ETH_USDT',
-        size: 50,
-        leverage: 8,
-        status: 'delivered',
-        strategyId: 'eth-swing-v1',
-        indicator: 'ETH Swing - 2h',
-        autoTradingExecuted: false
-    }
-];
-
-const defaultPositions = [
-    {
-        contract: 'BTC_USDT',
-        size: 0.42,
-        side: 'long',
-        leverage: 10,
-        margin: 520,
-        pnl: 138,
-        pnlPercentage: 5.6,
-        entryPrice: 61000,
-        markPrice: 64280,
-        value: 27000
-    },
-    {
-        contract: 'ETH_USDT',
-        size: 1.8,
-        side: 'short',
-        leverage: 6,
-        margin: 430,
-        pnl: -24,
-        pnlPercentage: -1.8,
-        entryPrice: 3400,
-        markPrice: 3475,
-        value: 6260
-    }
-];
 
 const generateLogEntry = (message, level = 'info') => ({
     id: `log-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -137,17 +55,11 @@ const generateLogEntry = (message, level = 'info') => ({
     level
 });
 
-const buildInitialLogs = () => [
-    generateLogEntry('[SYSTEM] Gate.io Trading Bot 대시보드가 시작되었습니다.'),
-    generateLogEntry('[WEBHOOK] 테스트 모드가 활성화되어 있습니다.'),
-    generateLogEntry('[API] 기본 데모 데이터가 로드되었습니다.')
-];
-
 const dataStore = {
-    logs: buildInitialLogs(),
+    logs: [],
     strategies: new Map(),
     users: new Map(),
-    signals: defaultSignals.slice(),
+    signals: [],
     webhook: {
         url: null,
         secret: null,
@@ -155,82 +67,28 @@ const dataStore = {
         updatedAt: null,
         routes: []
     },
-    webhookDeliveries: [
-        {
-            id: 'delivery-001',
-            timestamp: nowIsoString(),
-            indicator: 'BTC Scalping - 15m',
-            symbol: 'BTC_USDT',
-            action: 'open',
-            side: 'buy',
-            strategyId: 'btc-scalping-v1',
-            strategyName: 'BTC USDT 스캘핑 전략',
-            delivered: 1,
-            recipients: [
-                {
-                    uid: '123456',
-                    status: 'approved',
-                    autoTradingEnabled: true,
-                    approved: true
-                }
-            ]
-        }
-    ],
+    webhookDeliveries: [],
     metrics: {
         totalVisits: 0,
         lastVisitAt: null,
         sessions: new Map(),
-        lastSignal: defaultSignals[0] || null,
+        lastSignal: null,
         signalRecipients: {
-            active: 1,
-            lastSignalAt: defaultSignals[0]?.timestamp || null,
-            lastDeliveredCount: 1
+            active: 0,
+            lastSignalAt: null,
+            lastDeliveredCount: 0
+        },
+        visitors: {
+            active: 0,
+            totalSessions: 0,
+            lastVisitAt: null
         }
     }
 };
 
-defaultStrategies.forEach((strategy) => {
-    dataStore.strategies.set(strategy.id, { ...strategy });
-});
-
-const seedUsers = () => {
-    const approvedUser = {
-        uid: '123456',
-        status: 'approved',
-        requestedStrategies: defaultStrategies.map((strategy) => strategy.id),
-        approvedStrategies: defaultStrategies.map((strategy) => strategy.id),
-        accessKey: 'access_7390e86e7e8c',
-        autoTradingEnabled: true,
-        createdAt: nowIsoString(),
-        updatedAt: nowIsoString(),
-        approvedAt: nowIsoString(),
-        signals: defaultSignals.slice(),
-        positions: defaultPositions.slice()
-    };
-
-    const pendingUser = {
-        uid: '777777',
-        status: 'pending',
-        requestedStrategies: ['eth-swing-v1'],
-        approvedStrategies: [],
-        accessKey: null,
-        autoTradingEnabled: false,
-        createdAt: nowIsoString(),
-        updatedAt: nowIsoString(),
-        approvedAt: null,
-        signals: [],
-        positions: []
-    };
-
-    dataStore.users.set(approvedUser.uid, approvedUser);
-    dataStore.users.set(pendingUser.uid, pendingUser);
-};
-
-seedUsers();
-
 const ADMIN_TOKEN = normaliseString(
     process.env.ADMIN_TOKEN || process.env.ADMIN_SECRET || process.env.ADMIN_KEY,
-    'demo-admin-token'
+    'Ckdgml9788@'
 );
 
 const appendLog = (message, level = 'info') => {
@@ -721,83 +579,7 @@ if (fs.existsSync(serviceWorkerPath)) {
     });
 }
 
-const fileExists = (filePath) => {
-    try {
-        const stats = fs.statSync(filePath);
-        return stats.isFile();
-    } catch (err) {
-        if (err.code !== 'ENOENT') {
-            console.error(`Failed to stat ${filePath}`, err);
-        }
-        return false;
-    }
-};
-
-let loggedMissingBundle = false;
-let lastResolvedDashboard = null;
-
-const resolveDashboardFile = () => {
-    if (fileExists(distIndexPath)) {
-        if (lastResolvedDashboard !== distIndexPath) {
-            console.log(`Serving dashboard from ${distIndexPath}`);
-            lastResolvedDashboard = distIndexPath;
-        }
-        return distIndexPath;
-    }
-
-    if (!loggedMissingBundle) {
-        loggedMissingBundle = true;
-        console.error(
-            'Dashboard bundle not found at dist/index.html. Run `npm run build` before deploying the simple server.',
-        );
-    }
-
-    if (process.env.ALLOW_PUBLIC_PLACEHOLDER === 'true' && fileExists(publicIndexPath)) {
-        if (lastResolvedDashboard !== publicIndexPath) {
-            console.warn('Falling back to public/index.html placeholder because built assets are missing.');
-            lastResolvedDashboard = publicIndexPath;
-        }
-        return publicIndexPath;
-    }
-
-    return null;
-};
-
-const shouldReturnJson = (req) => {
-    if ((req.query.format || '').toLowerCase() === 'json') {
-        return true;
-    }
-
-    const acceptHeader = req.headers.accept || '';
-    if (!acceptHeader) {
-        // 기본적으로 브라우저는 text/html을 요청하므로, 명시적인 Accept가 없으면 HTML 반환
-        return false;
-    }
-
-    // HTML을 받아들일 수 있다면 항상 UI를 우선적으로 반환한다.
-    if (req.accepts('html')) {
-        return false;
-    }
-
-    // HTML을 명시하지 않고 JSON만 허용할 때만 상태 JSON을 반환한다.
-    if (req.accepts('json')) {
-        return true;
-    }
-
-    return false;
-};
-
-const respondWithStatusJson = (res) => {
-    res.json({
-        message: 'Gate.io Trading Bot is running',
-        port: PORT,
-        timestamp: new Date().toISOString()
-    });
-};
-
-const serveDashboard = (req, res) => {
-    if (shouldReturnJson(req)) {
-        return respondWithStatusJson(res);
+@@ -149,50 +658,79 @@ const serveDashboard = (req, res) => {
     }
 
     const dashboardFile = resolveDashboardFile();
@@ -877,21 +659,7 @@ app.post('/api/connect', (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_credentials',
-            message: 'API Key와 Secret을 모두 입력해주세요.'
-        });
-    }
-
-    const network = resolveNetwork(isTestnet);
-    const apiBaseUrl = network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
-
-    console.log('Received connect request', {
-        hasUid: !!uid,
-        hasAccessKey: !!accessKey,
-        network
-    });
-
-    return res.json({
-        ok: true,
+@@ -214,30 +752,32 @@ app.post('/api/connect', (req, res) => {
         message: 'Gate.io API 연결이 설정되었습니다.',
         network,
         apiBaseUrl,
