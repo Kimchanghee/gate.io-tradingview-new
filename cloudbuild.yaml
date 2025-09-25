@@ -41,6 +41,8 @@ steps:
       - '10'
       - '--min-instances'
       - '0'
+      - '--env-vars-file'
+      - '.env.yaml'
 
 images:
   - 'gcr.io/$PROJECT_ID/gate-bot:latest'
