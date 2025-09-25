@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* 다크 테마 (기본) */
 :root {
   --gate-primary: #17d8a3;
