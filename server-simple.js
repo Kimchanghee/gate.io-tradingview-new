@@ -440,9 +440,15 @@ const bootstrapDemoData = () => {
     refreshMetricsSnapshot();
 };
 
-const shouldSeedDemoData = !isTruthyEnv(process.env.DISABLE_DEMO_DATA || process.env.NO_DEMO_DATA);
+const shouldSeedDemoData = isTruthyEnv(
+    process.env.ENABLE_DEMO_DATA || process.env.USE_DEMO_DATA || process.env.LOAD_DEMO_DATA
+);
+
 if (shouldSeedDemoData) {
     bootstrapDemoData();
+} else {
+    appendLog('서버가 빈 기본 상태로 시작되었습니다. (데모 데이터 비활성화)', 'debug');
+    refreshMetricsSnapshot();
 }
 
 const resolveUserForCredentialCheck = (uid, key) => {
