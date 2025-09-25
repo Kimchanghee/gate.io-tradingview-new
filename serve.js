@@ -515,6 +515,101 @@ app.post('/api/test', async (req, res) => {
     }
 });
 
+const DEFAULT_MAINNET_API_BASE = 'https://api.gateio.ws';
+const DEFAULT_TESTNET_API_BASE = 'https://fx-api-testnet.gateio.ws';
+
+const normaliseString = (value, fallback = '') => {
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed || fallback;
+    }
+    if (value === null || value === undefined) {
+        return fallback;
+    }
+    return String(value);
+};
+
+const resolveNetwork = (isTestnet) => {
+    if (typeof isTestnet === 'string') {
+        const lowered = isTestnet.trim().toLowerCase();
+        if (['true', '1', 'testnet'].includes(lowered)) {
+            return 'testnet';
+        }
+        if (['false', '0', 'mainnet'].includes(lowered)) {
+            return 'mainnet';
+        }
+    }
+    if (isTestnet) {
+        return 'testnet';
+    }
+    return 'mainnet';
+};
+
+const buildEmptyAccounts = () => ({
+    futures: null,
+    spot: [],
+    margin: [],
+    options: null,
+    totalEstimatedValue: 0
+});
+
+// Connect endpoint for dashboard API credentials check
+app.post('/api/connect', (req, res) => {
+    const {
+        uid,
+        accessKey,
+        apiKey,
+        apiSecret,
+        isTestnet
+    } = req.body || {};
+
+    const normalisedKey = normaliseString(apiKey);
+    const normalisedSecret = normaliseString(apiSecret);
+
+    if (!normalisedKey || !normalisedSecret) {
+        return res.status(400).json({
+            ok: false,
+            code: 'missing_credentials',
+            message: 'API Key와 Secret을 모두 입력해주세요.'
+        });
+    }
+
+    const network = resolveNetwork(isTestnet);
+    const apiBaseUrl = network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
+
+    console.log('Received connect request', {
+        hasUid: !!uid,
+        hasAccessKey: !!accessKey,
+        network
+    });
+
+    return res.json({
+        ok: true,
+        message: 'Gate.io API 연결이 설정되었습니다.',
+        network,
+        apiBaseUrl,
+        accounts: buildEmptyAccounts(),
+        autoTradingEnabled: false
+    });
+});
+
+app.post('/api/disconnect', (req, res) => {
+    console.log('Received disconnect request', {
+        hasUid: !!(req.body && req.body.uid),
+        network: resolveNetwork(req.body && req.body.network)
+    });
+    res.json({ ok: true });
+});
+
+app.get('/api/accounts/all', (req, res) => {
+    res.json(buildEmptyAccounts());
+});
+
+app.post('/api/trading/auto', (req, res) => {
+    const enabled = !!(req.body && req.body.enabled);
+    res.json({ ok: true, autoTradingEnabled: enabled });
+});
+
 // Get balances
 app.get('/api/balances', async (req, res) => {
     try {
