@@ -471,6 +471,141 @@ const computeTotalEstimatedValue = (accounts, totalBalancePayload) => {
     return derivedTotal;
 };
 
+
+const parseWebhookPayload = (input) => {
+    if (input === undefined || input === null) {
+        return {};
+    }
+
+    let value = input;
+
+    if (Buffer.isBuffer(value)) {
+        value = value.toString('utf-8');
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return {};
+        }
+        try {
+            return parseWebhookPayload(JSON.parse(trimmed));
+        } catch (error) {
+            const parsed = {};
+            trimmed.split(/\r?\n/).forEach((line) => {
+                const separatorIndex = line.indexOf(':');
+                if (separatorIndex === -1) {
+                    return;
+                }
+                const key = line.slice(0, separatorIndex).trim();
+                const val = line.slice(separatorIndex + 1).trim();
+                if (key) {
+                    parsed[key.toLowerCase()] = val;
+                }
+            });
+            return parsed;
+        }
+    }
+
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        return {};
+    }
+
+    return value;
+};
+
+const slugifyStrategyId = (value) => {
+    const normalised = normaliseString(value);
+    if (!normalised) {
+        return '';
+    }
+    return normalised
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+};
+
+const resolveStrategyFromPayload = (payload) => {
+    const candidateId = normaliseString(payload.strategy_id || payload.strategyId);
+    const candidateName = normaliseString(payload.strategy || payload.strategy_name || payload.indicator);
+    const slug = slugifyStrategyId(candidateId || candidateName);
+    if (!slug) {
+        return { strategyId: null, strategyName: candidateName || null };
+    }
+
+    let matchedId = null;
+    let matchedName = candidateName || null;
+    dataStore.strategies.forEach((strategy, id) => {
+        const idSlug = slugifyStrategyId(id);
+        const nameSlug = slugifyStrategyId(strategy?.name);
+        if (idSlug === slug || (nameSlug && nameSlug === slug)) {
+            matchedId = id;
+            matchedName = strategy?.name || matchedName;
+        }
+    });
+
+    if (matchedId) {
+        return { strategyId: matchedId, strategyName: matchedName || candidateName || matchedId };
+    }
+
+    return {
+        strategyId: slug,
+        strategyName: candidateName || candidateId || null
+    };
+};
+
+const buildWebhookRecipients = (strategyId) => {
+    const recipients = [];
+    const strategySlug = slugifyStrategyId(strategyId);
+
+    dataStore.users.forEach((user) => {
+        if (user.status !== 'approved') {
+            return;
+        }
+
+        const approvedStrategies = Array.isArray(user.approvedStrategies) ? user.approvedStrategies : [];
+        const matchesStrategy = !strategySlug
+            || approvedStrategies.some((id) => slugifyStrategyId(id) === strategySlug);
+
+        if (!matchesStrategy) {
+            return;
+        }
+
+        recipients.push({
+            uid: user.uid,
+            status: user.status || 'unknown',
+            autoTradingEnabled: Boolean(user.autoTradingEnabled),
+            approved: true
+        });
+    });
+
+    return recipients;
+};
+
+const summariseWebhookDelivery = (payload) => {
+    const indicator = normaliseString(payload.indicator || payload.strategy || payload.strategy_name);
+    const symbol = normaliseString(payload.symbol || payload.ticker || payload.pair);
+    const action = normaliseString(payload.action);
+    const side = normaliseString(payload.side || payload.direction);
+    const { strategyId, strategyName } = resolveStrategyFromPayload(payload);
+    const recipients = buildWebhookRecipients(strategyId);
+    const delivered = recipients.filter((recipient) => recipient.autoTradingEnabled).length;
+
+    return {
+        id: `wh-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        timestamp: nowIsoString(),
+        indicator: indicator || strategyName || null,
+        symbol: symbol || null,
+        action: action || null,
+        side: side || null,
+        strategyId: strategyId || null,
+        strategyName: strategyName || indicator || null,
+        delivered,
+        recipients
+    };
+};
+
+
 const fetchGateAccounts = async (client) => {
     const accounts = buildEmptyAccounts();
 
@@ -924,7 +1059,8 @@ adminRouter.patch('/strategies/:id', (req, res) => {
 });
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 const distDir = path.join(__dirname, 'dist');
 const publicDir = path.join(__dirname, 'public');
@@ -1013,11 +1149,41 @@ app.get(['/api/positions', '/positions'], handlePositions);
 
 // Webhook endpoint
 app.post('/webhook', (req, res) => {
-    console.log('Webhook received:', req.body);
-    res.json({
-        status: 'received',
-        body: req.body
-    });
+    try {
+        const payload = parseWebhookPayload(req.body);
+        const delivery = summariseWebhookDelivery(payload);
+        delivery.payload = payload;
+
+        dataStore.webhookDeliveries.push(delivery);
+        if (dataStore.webhookDeliveries.length > 100) {
+            dataStore.webhookDeliveries.splice(0, dataStore.webhookDeliveries.length - 100);
+        }
+
+        dataStore.metrics.lastSignal = {
+            indicator: delivery.indicator,
+            symbol: delivery.symbol,
+            action: delivery.action,
+            side: delivery.side,
+            delivered: delivery.delivered,
+            receivedAt: delivery.timestamp
+        };
+        dataStore.metrics.signalRecipients.lastSignalAt = delivery.timestamp;
+        dataStore.metrics.signalRecipients.lastDeliveredCount = delivery.delivered;
+
+        appendLog(`[WEBHOOK] Received ${delivery.indicator || 'signal'} for ${delivery.symbol || '-'} (${delivery.delivered} recipients).`);
+
+        res.json({
+            status: 'received',
+            deliveryId: delivery.id,
+            delivered: delivery.delivered
+        });
+    } catch (error) {
+        console.error('Webhook processing failed:', error);
+        res.status(400).json({
+            status: 'error',
+            message: 'Unable to process webhook payload.'
+        });
+    }
 });
 
 app.post('/api/connect', async (req, res) => {
