@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const axios = require('axios');
 const express = require('express');
 const app = express();
 
-// Cloud Run이 설정하는 PORT 환경변수 사용
+// Cloud Run injects the PORT environment variable
 const PORT = process.env.PORT || 8080;
 
 const DEFAULT_MAINNET_API_BASE = 'https://api.gateio.ws';
@@ -148,6 +149,7 @@ const ensureUserExists = (uid) => {
             approvedStrategies: [],
             accessKey: null,
             autoTradingEnabled: false,
+            gateConnections: {},
             createdAt: nowIsoString(),
             updatedAt: nowIsoString(),
             approvedAt: null,
@@ -156,7 +158,11 @@ const ensureUserExists = (uid) => {
         };
         dataStore.users.set(uid, newUser);
     }
-    return dataStore.users.get(uid);
+    const user = dataStore.users.get(uid);
+    if (user && !user.gateConnections) {
+        user.gateConnections = {};
+    }
+    return user;
 };
 
 const refreshMetricsSnapshot = () => {
@@ -194,6 +200,370 @@ const resolveUserForCredentialCheck = (uid, key) => {
     return { user };
 };
 
+const normaliseNetworkKey = (value) => {
+    const normalised = normaliseString(value, 'mainnet').toLowerCase();
+    return normalised === 'testnet' ? 'testnet' : 'mainnet';
+};
+
+const toNumber = (value) => {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return 0;
+        }
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+};
+
+const ensureGateConnections = (user) => {
+    if (user && !user.gateConnections) {
+        user.gateConnections = {};
+    }
+    return user?.gateConnections || {};
+};
+
+class GateIoClient {
+    constructor({ apiKey, apiSecret, network }) {
+        this.apiKey = apiKey;
+        this.apiSecret = apiSecret;
+        this.network = normaliseNetworkKey(network);
+        const base = this.network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
+        this.host = base.replace(/\/$/, '');
+        this.pathPrefix = '/api/v4';
+    }
+
+    buildHeaders(method, path, queryString, payload) {
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const hashedPayload = crypto
+            .createHash('sha512')
+            .update(payload || '')
+            .digest('hex');
+
+        const signatureBase = [
+            method.toUpperCase(),
+            path,
+            queryString,
+            hashedPayload,
+            timestamp
+        ].join('\n');
+
+        const signature = crypto
+            .createHmac('sha512', this.apiSecret)
+            .update(signatureBase)
+            .digest('hex');
+
+        return {
+            KEY: this.apiKey,
+            SIGN: signature,
+            Timestamp: timestamp
+        };
+    }
+
+    buildQuery(params = {}) {
+        const search = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value === undefined || value === null || value === '') {
+                return;
+            }
+            if (Array.isArray(value)) {
+                value.forEach((item) => search.append(key, String(item)));
+            } else {
+                search.append(key, String(value));
+            }
+        });
+        return search;
+    }
+
+    async request(method, endpoint, params = {}, data = null) {
+        if (!this.apiKey || !this.apiSecret) {
+            const error = new Error('Gate.io API credentials are missing');
+            error.code = 'missing_credentials';
+            throw error;
+        }
+
+        const path = endpoint.startsWith('/') ? `${this.pathPrefix}${endpoint}` : `${this.pathPrefix}/${endpoint}`;
+        const query = this.buildQuery(params);
+        const queryString = query.toString();
+        const payload = data ? JSON.stringify(data) : '';
+        const headers = this.buildHeaders(method, path, queryString, payload);
+        const fullUrl = `${this.host}${path}${queryString ? `?${queryString}` : ''}`;
+
+        const response = await axios({
+            method,
+            url: fullUrl,
+            data: data ?? undefined,
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
+            },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+
+        if (response.status >= 400) {
+            const error = new Error(`Gate.io API responded with status ${response.status}`);
+            error.response = response;
+            throw error;
+        }
+
+        return response.data;
+    }
+
+    getFuturesAccount(settle = 'usdt') {
+        return this.request('GET', `/futures/${settle}/accounts`);
+    }
+
+    getSpotAccounts() {
+        return this.request('GET', '/spot/accounts');
+    }
+
+    getMarginAccounts() {
+        return this.request('GET', '/margin/accounts');
+    }
+
+    getOptionsAccount() {
+        return this.request('GET', '/options/accounts');
+    }
+
+    getTotalBalance(currency = 'USDT') {
+        return this.request('GET', '/wallet/total_balance', { currency });
+    }
+}
+
+const mapFuturesAccount = (raw) => {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const total = toNumber(raw.total ?? raw.balance);
+    const available = toNumber(raw.available ?? raw.available_margin ?? raw.availableBalance);
+    const positionMargin = toNumber(raw.position_margin ?? raw.positionMargin);
+    const orderMargin = toNumber(raw.order_margin ?? raw.orderMargin);
+    const unrealisedPnl = toNumber(raw.unrealised_pnl ?? raw.unrealized_pnl ?? raw.unrealizedPnl);
+    const currency = normaliseString(raw.currency || raw.settle || '', 'USDT').toUpperCase();
+
+    if ([total, available, positionMargin, orderMargin, unrealisedPnl].every((value) => value === 0)) {
+        return null;
+    }
+
+    return {
+        total,
+        available,
+        positionMargin,
+        orderMargin,
+        unrealisedPnl,
+        currency
+    };
+};
+
+const mapSpotBalances = (rows) => {
+    if (!Array.isArray(rows)) {
+        return [];
+    }
+
+    return rows
+        .map((row) => {
+            const currency = normaliseString(row.currency, '').toUpperCase();
+            const available = toNumber(row.available);
+            const locked = toNumber(row.locked);
+            const total = toNumber(row.total);
+            const computedTotal = total || available + locked;
+            return {
+                currency,
+                available,
+                locked,
+                total: computedTotal
+            };
+        })
+        .filter((item) => item.total > 0 || item.available > 0 || item.locked > 0);
+};
+
+const mapMarginAccounts = (rows) => {
+    let source = [];
+    if (Array.isArray(rows)) {
+        source = rows;
+    } else if (rows && typeof rows === 'object') {
+        source = Object.values(rows);
+    } else {
+        return [];
+    }
+
+    return source
+        .map((row) => {
+            const base = row.base || {};
+            const quote = row.quote || {};
+            return {
+                currencyPair: normaliseString(row.currency_pair || row.currencyPair),
+                base: {
+                    currency: normaliseString(base.currency),
+                    available: toNumber(base.available),
+                    locked: toNumber(base.locked),
+                    borrowed: toNumber(base.loan ?? base.borrowed),
+                    interest: toNumber(base.interest)
+                },
+                quote: {
+                    currency: normaliseString(quote.currency),
+                    available: toNumber(quote.available),
+                    locked: toNumber(quote.locked),
+                    borrowed: toNumber(quote.loan ?? quote.borrowed),
+                    interest: toNumber(quote.interest)
+                },
+                risk: toNumber(row.risk)
+            };
+        })
+        .filter((entry) => {
+            const baseTotals = entry.base.available + entry.base.locked + entry.base.borrowed;
+            const quoteTotals = entry.quote.available + entry.quote.locked + entry.quote.borrowed;
+            return baseTotals > 0 || quoteTotals > 0;
+        });
+};
+
+const mapOptionsAccount = (raw) => {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const total = toNumber(raw.total);
+    const available = toNumber(raw.available);
+    const positionValue = toNumber(raw.position_value ?? raw.position_margin ?? raw.positionMargin);
+    const orderMargin = toNumber(raw.order_margin ?? raw.orderMargin);
+    const unrealisedPnl = toNumber(raw.unrealised_pnl ?? raw.unrealized_pnl ?? raw.unrealizedPnl);
+
+    if ([total, available, positionValue, orderMargin, unrealisedPnl].every((value) => value === 0)) {
+        return null;
+    }
+
+    return {
+        total,
+        available,
+        positionValue,
+        orderMargin,
+        unrealisedPnl
+    };
+};
+
+const computeTotalEstimatedValue = (accounts, totalBalancePayload) => {
+    const totalFromPayload = totalBalancePayload
+        ? toNumber(totalBalancePayload.total ?? totalBalancePayload.amount ?? totalBalancePayload.balance)
+        : 0;
+
+    if (totalFromPayload > 0) {
+        return totalFromPayload;
+    }
+
+    let derivedTotal = 0;
+    if (accounts.futures) {
+        derivedTotal += toNumber(accounts.futures.total);
+    }
+    if (accounts.options) {
+        derivedTotal += toNumber(accounts.options.total);
+    }
+    derivedTotal += accounts.spot
+        .filter((balance) => balance.currency === 'USDT')
+        .reduce((acc, balance) => acc + toNumber(balance.total), 0);
+
+    return derivedTotal;
+};
+
+const fetchGateAccounts = async (client) => {
+    const accounts = buildEmptyAccounts();
+
+    const [futuresResult, spotResult, marginResult, optionsResult, totalResult] = await Promise.allSettled([
+        client.getFuturesAccount('usdt'),
+        client.getSpotAccounts(),
+        client.getMarginAccounts(),
+        client.getOptionsAccount(),
+        client.getTotalBalance('USDT')
+    ]);
+
+    const authFailure = [futuresResult, spotResult, marginResult, optionsResult, totalResult].find(
+        (result) =>
+            result.status === 'rejected' &&
+            result.reason &&
+            result.reason.response &&
+            result.reason.response.status === 401
+    );
+
+    if (authFailure) {
+        const error = new Error('Gate.io rejected credentials');
+        error.code = 'invalid_credentials';
+        error.status = authFailure.reason.response.status;
+        error.response = authFailure.reason.response;
+        throw error;
+    }
+
+    if (futuresResult.status === 'fulfilled') {
+        const futuresAccount = mapFuturesAccount(futuresResult.value);
+        if (futuresAccount) {
+            accounts.futures = futuresAccount;
+        }
+    } else if (futuresResult.status === 'rejected') {
+        console.warn('Failed to load Gate.io futures account:', futuresResult.reason?.response?.data || futuresResult.reason?.message || futuresResult.reason);
+    }
+
+    if (!accounts.futures) {
+        try {
+            const btcFutures = await client.getFuturesAccount('btc');
+            const mapped = mapFuturesAccount(btcFutures);
+            if (mapped) {
+                accounts.futures = mapped;
+            }
+        } catch (btcError) {
+            const status = btcError.response?.status;
+            if (status && status !== 404) {
+                console.warn('Failed to load Gate.io BTC-settled futures account:', btcError.response?.data || btcError.message || btcError);
+            }
+        }
+    }
+
+    if (spotResult.status === 'fulfilled') {
+        accounts.spot = mapSpotBalances(spotResult.value);
+    } else if (spotResult.status === 'rejected') {
+        console.warn('Failed to load Gate.io spot balances:', spotResult.reason?.response?.data || spotResult.reason?.message || spotResult.reason);
+    }
+
+    if (marginResult.status === 'fulfilled') {
+        accounts.margin = mapMarginAccounts(marginResult.value);
+    } else if (marginResult.status === 'rejected') {
+        const status = marginResult.reason?.response?.status;
+        if (status !== 404) {
+            console.warn('Failed to load Gate.io margin balances:', marginResult.reason?.response?.data || marginResult.reason?.message || marginResult.reason);
+        }
+    }
+
+    if (optionsResult.status === 'fulfilled') {
+        const rawOptions = optionsResult.value;
+        const optionEntries = Array.isArray(rawOptions) ? rawOptions : [rawOptions];
+        for (const entry of optionEntries) {
+            const optionsAccount = mapOptionsAccount(entry);
+            if (optionsAccount) {
+                accounts.options = optionsAccount;
+                break;
+            }
+        }
+    } else if (optionsResult.status === 'rejected') {
+        const status = optionsResult.reason?.response?.status;
+        if (status !== 404) {
+            console.warn('Failed to load Gate.io options account:', optionsResult.reason?.response?.data || optionsResult.reason?.message || optionsResult.reason);
+        }
+    }
+
+    const totalPayload = totalResult.status === 'fulfilled' ? totalResult.value : null;
+    if (totalResult.status === 'rejected') {
+        console.warn('Failed to load Gate.io total balance:', totalResult.reason?.response?.data || totalResult.reason?.message || totalResult.reason);
+    }
+
+    accounts.totalEstimatedValue = computeTotalEstimatedValue(accounts, totalPayload);
+
+    return accounts;
+};
+
 const serialiseLogs = () => dataStore.logs.slice().reverse();
 
 const serialiseStrategies = () =>
@@ -224,7 +594,7 @@ const handleUserStatus = (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_uid',
-            message: 'UID가 필요합니다.'
+            message: 'UID가 ??????'
         });
     }
 
@@ -238,7 +608,7 @@ const handleRegister = (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_uid',
-            message: 'UID를 입력해주세요.'
+            message: 'UID???????'
         });
     }
 
@@ -248,7 +618,7 @@ const handleRegister = (req, res) => {
         return res.json({
             ok: true,
             status: user.status,
-            message: '이미 승인된 사용자입니다.',
+            message: '?? ???????????',
             accessKey: user.accessKey
         });
     }
@@ -261,12 +631,12 @@ const handleRegister = (req, res) => {
             .map((strategy) => strategy.id);
     }
 
-    appendLog(`[USER] UID ${uid}가 등록을 요청했습니다.`);
+    appendLog(`[USER] UID ${uid}가 ?????????`);
 
     return res.json({
         ok: true,
         status: user.status,
-        message: '등록 요청이 접수되었습니다.'
+        message: '?????????????'
     });
 };
 
@@ -276,7 +646,7 @@ const handleUserSignals = (req, res) => {
         return res.status(status).json({
             ok: false,
             code: error,
-            message: '신호를 가져오지 못했습니다.'
+            message: '???가??? 못했????'
         });
     }
 
@@ -299,13 +669,13 @@ const handlePositions = (req, res) => {
         if (error === 'missing_credentials') {
             return res.status(status).json({
                 code: error,
-                message: 'UID와 액세스 키가 필요합니다.',
+                message: 'UID? ?????? ??????',
                 positions: []
             });
         }
         return res.status(status).json({
             code: error,
-            message: '포지션을 가져오지 못했습니다.',
+            message: '?????가??? 못했????',
             positions: []
         });
     }
@@ -322,7 +692,7 @@ const adminAuthMiddleware = (req, res, next) => {
     if (!token || token !== ADMIN_TOKEN) {
         return res.status(401).json({
             ok: false,
-            message: '관리자 인증에 실패했습니다.'
+            message: '관리자 ??????????'
         });
     }
     return next();
@@ -375,7 +745,7 @@ adminRouter.get('/metrics', (req, res) => {
         },
         webhook: {
             ready: Boolean(dataStore.webhook.url),
-            issues: dataStore.webhook.url ? [] : ['웹훅 URL이 설정되지 않았습니다.'],
+            issues: dataStore.webhook.url ? [] : ['???URL?????? ??????'],
             routes: dataStore.webhook.routes,
             lastSignal: dataStore.metrics.lastSignal || null
         },
@@ -423,7 +793,7 @@ adminRouter.post('/webhook', (req, res) => {
         .filter((strategy) => strategy.active)
         .map((strategy) => strategy.id);
 
-    appendLog('[WEBHOOK] 새 웹훅 URL이 생성되었습니다.');
+    appendLog('[WEBHOOK] ?????URL??????????');
 
     res.json({
         url: webhookUrl,
@@ -441,7 +811,7 @@ adminRouter.put('/webhook/routes', (req, res) => {
         .filter((id) => id && dataStore.strategies.has(id));
     dataStore.webhook.updatedAt = nowIsoString();
 
-    appendLog('[WEBHOOK] 전달 대상 전략이 업데이트되었습니다.');
+    appendLog('[WEBHOOK] ????????????????????');
 
     res.json({ ok: true, routes: dataStore.webhook.routes });
 });
@@ -455,7 +825,7 @@ adminRouter.get('/webhook/deliveries', (req, res) => {
 adminRouter.post('/users/approve', (req, res) => {
     const uid = normaliseString(req.body?.uid);
     if (!uid) {
-        return res.status(400).json({ ok: false, message: 'UID가 필요합니다.' });
+        return res.status(400).json({ ok: false, message: 'UID가 ??????' });
     }
 
     const user = ensureUserExists(uid);
@@ -475,7 +845,7 @@ adminRouter.post('/users/approve', (req, res) => {
 
     dataStore.metrics.signalRecipients.active = Array.from(dataStore.users.values()).filter((item) => item.status === 'approved').length;
 
-    appendLog(`[ADMIN] UID ${uid}가 승인되었습니다.`);
+    appendLog(`[ADMIN] UID ${uid}가 ????????`);
 
     res.json({ ok: true, status: user.status, accessKey: user.accessKey });
 });
@@ -483,7 +853,7 @@ adminRouter.post('/users/approve', (req, res) => {
 adminRouter.post('/users/deny', (req, res) => {
     const uid = normaliseString(req.body?.uid);
     if (!uid) {
-        return res.status(400).json({ ok: false, message: 'UID가 필요합니다.' });
+        return res.status(400).json({ ok: false, message: 'UID가 ??????' });
     }
 
     const user = ensureUserExists(uid);
@@ -493,7 +863,7 @@ adminRouter.post('/users/deny', (req, res) => {
     user.autoTradingEnabled = false;
     user.updatedAt = nowIsoString();
 
-    appendLog(`[ADMIN] UID ${uid}가 거절되었습니다.`, 'warn');
+    appendLog(`[ADMIN] UID ${uid}가 거절??????`, 'warn');
 
     res.json({ ok: true, status: user.status });
 });
@@ -501,18 +871,18 @@ adminRouter.post('/users/deny', (req, res) => {
 adminRouter.delete('/users/:uid', (req, res) => {
     const uid = normaliseString(req.params.uid);
     if (!uid || !dataStore.users.has(uid)) {
-        return res.status(404).json({ ok: false, message: '사용자를 찾을 수 없습니다.' });
+        return res.status(404).json({ ok: false, message: '???? 찾을 ???????' });
     }
 
     dataStore.users.delete(uid);
-    appendLog(`[ADMIN] UID ${uid}가 삭제되었습니다.`, 'warn');
+    appendLog(`[ADMIN] UID ${uid}가 ????????`, 'warn');
     res.json({ ok: true });
 });
 
 adminRouter.post('/strategies', (req, res) => {
     const name = normaliseString(req.body?.name);
     if (!name) {
-        return res.status(400).json({ ok: false, message: '전략 이름이 필요합니다.' });
+        return res.status(400).json({ ok: false, message: '????????????' });
     }
 
     const idBase = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'strategy';
@@ -533,7 +903,7 @@ adminRouter.post('/strategies', (req, res) => {
     };
 
     dataStore.strategies.set(id, strategy);
-    appendLog(`[ADMIN] 새 전략 ${name}이(가) 추가되었습니다.`);
+    appendLog(`[ADMIN] ?????${name}??가) ???????`);
     res.json({ ok: true, strategy });
 });
 
@@ -541,19 +911,19 @@ adminRouter.patch('/strategies/:id', (req, res) => {
     const id = normaliseString(req.params.id);
     const strategy = id ? dataStore.strategies.get(id) : null;
     if (!strategy) {
-        return res.status(404).json({ ok: false, message: '전략을 찾을 수 없습니다.' });
+        return res.status(404).json({ ok: false, message: '????찾을 ???????' });
     }
 
     const nextActive = req.body?.active !== undefined ? Boolean(req.body.active) : !strategy.active;
     strategy.active = nextActive;
     strategy.updatedAt = nowIsoString();
 
-    appendLog(`[ADMIN] 전략 ${strategy.name}의 상태가 업데이트되었습니다.`);
+    appendLog(`[ADMIN] ???${strategy.name}????? ??????????`);
 
     res.json({ ok: true, strategy });
 });
 
-// 미들웨어
+// 미들???
 app.use(express.json());
 
 const distDir = path.join(__dirname, 'dist');
@@ -562,7 +932,7 @@ const distIndexPath = path.join(distDir, 'index.html');
 const publicIndexPath = path.join(publicDir, 'index.html');
 const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
 
-// 정적 파일 경로 구성 (index.html은 직접 서빙)
+// ??????경로 구성 (index.html? 직접 ??
 [
     distDir,
     publicDir
@@ -650,40 +1020,91 @@ app.post('/webhook', (req, res) => {
     });
 });
 
-app.post('/api/connect', (req, res) => {
-    const {
-        uid,
-        accessKey,
-        apiKey,
-        apiSecret,
-        isTestnet
-    } = req.body || {};
+app.post('/api/connect', async (req, res) => {
+    try {
+        const {
+            uid,
+            accessKey,
+            apiKey,
+            apiSecret,
+            isTestnet
+        } = req.body || {};
 
-    const normalisedKey = normaliseString(apiKey);
-    const normalisedSecret = normaliseString(apiSecret);
+        const normalisedKey = normaliseString(apiKey);
+        const normalisedSecret = normaliseString(apiSecret);
 
-    if (!normalisedKey || !normalisedSecret) {
-        return res.status(400).json({
+        if (!normalisedKey || !normalisedSecret) {
+            return res.status(400).json({
+                ok: false,
+                code: 'missing_credentials',
+                message: 'Gate.io API key and secret are required.'
+            });
+        }
+
+        const { user, error, status } = resolveUserForCredentialCheck(uid, accessKey);
+        if (error) {
+            return res.status(status).json({
+                ok: false,
+                code: error,
+                message: 'User authorization failed. Please reauthenticate.'
+            });
+        }
+
+        const network = resolveNetwork(isTestnet);
+        const apiBaseUrl = network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
+        const client = new GateIoClient({
+            apiKey: normalisedKey,
+            apiSecret: normalisedSecret,
+            network
+        });
+
+        let accounts;
+        try {
+            accounts = await fetchGateAccounts(client);
+        } catch (apiError) {
+            const statusCode = apiError.status || apiError.response?.status;
+            if (apiError.code === 'invalid_credentials' || statusCode === 401 || statusCode === 403) {
+                return res.status(401).json({
+                    ok: false,
+                    code: 'invalid_credentials',
+                    message: 'Gate.io rejected the API credentials. Please verify the key, secret, and enabled permissions.'
+                });
+            }
+
+            console.error('Failed to verify Gate.io credentials:', apiError.response?.data || apiError.message || apiError);
+            return res.status(502).json({
+                ok: false,
+                message: 'Unable to verify Gate.io API credentials at the moment. Please try again.'
+            });
+        }
+
+        const userConnections = ensureGateConnections(user);
+        userConnections[network] = {
+            apiKey: normalisedKey,
+            apiSecret: normalisedSecret,
+            apiBaseUrl,
+            connectedAt: nowIsoString(),
+            lastUsedAt: nowIsoString(),
+            lastAccounts: accounts
+        };
+
+        appendLog(`[CONNECT] UID ${normaliseString(uid) || 'unknown'} connected to ${network} network.`);
+
+        return res.json({
+            ok: true,
+            message: 'Gate.io API connection established.',
+            network,
+            apiBaseUrl,
+            accounts,
+            autoTradingEnabled: Boolean(user.autoTradingEnabled)
+        });
+    } catch (error) {
+        console.error('Unexpected error handling /api/connect:', error.response?.data || error.message || error);
+        return res.status(500).json({
             ok: false,
-            code: 'missing_credentials',
-            message: 'Gate.io API key and secret are required.'
+            message: 'Failed to connect to Gate.io API.'
         });
     }
-
-    const network = resolveNetwork(isTestnet);
-    const apiBaseUrl = network === 'testnet' ? DEFAULT_TESTNET_API_BASE : DEFAULT_MAINNET_API_BASE;
-    const requester = normaliseString(uid) || 'unknown';
-
-    appendLog('[CONNECT] UID ' + requester + ' requested ' + network + ' network connection.');
-
-    return res.json({
-        ok: true,
-        message: 'Gate.io API connection established.',
-        network,
-        apiBaseUrl,
-        accounts: buildEmptyAccounts(),
-        autoTradingEnabled: false
-    });
 });
 
 app.post('/api/disconnect', (req, res) => {
@@ -694,8 +1115,68 @@ app.post('/api/disconnect', (req, res) => {
     res.json({ ok: true });
 });
 
-app.get('/api/accounts/all', (req, res) => {
-    res.json(buildEmptyAccounts());
+app.get('/api/accounts/all', async (req, res) => {
+    try {
+        const uid = req.query?.uid;
+        const key = req.query?.key;
+        const requestedNetwork = normaliseNetworkKey(req.query?.network);
+        const { user, error, status } = resolveUserForCredentialCheck(uid, key);
+        if (error) {
+            return res.status(status).json({
+                ok: false,
+                code: error,
+                message: 'Unable to verify UID credentials.'
+            });
+        }
+
+        const connections = ensureGateConnections(user);
+        const storedConnection = connections[requestedNetwork];
+
+        if (!storedConnection) {
+            return res.status(400).json({
+                ok: false,
+                code: 'api_not_connected',
+                message: 'API credentials for this network are not configured. Please connect first.'
+            });
+        }
+
+        const client = new GateIoClient({
+            apiKey: storedConnection.apiKey,
+            apiSecret: storedConnection.apiSecret,
+            network: requestedNetwork
+        });
+
+        let accounts;
+        try {
+            accounts = await fetchGateAccounts(client);
+        } catch (apiError) {
+            const statusCode = apiError.status || apiError.response?.status;
+            if (apiError.code === 'invalid_credentials' || statusCode === 401 || statusCode === 403) {
+                return res.status(401).json({
+                    ok: false,
+                    code: 'invalid_credentials',
+                    message: 'Gate.io rejected the stored credentials. Please reconnect with updated API keys.'
+                });
+            }
+
+            console.error('Failed to refresh Gate.io accounts:', apiError.response?.data || apiError.message || apiError);
+            return res.status(502).json({
+                ok: false,
+                message: 'Unable to fetch Gate.io account balances right now. Please retry later.'
+            });
+        }
+
+        storedConnection.lastUsedAt = nowIsoString();
+        storedConnection.lastAccounts = accounts;
+
+        return res.json(accounts);
+    } catch (error) {
+        console.error('Unexpected error in /api/accounts/all:', error.response?.data || error.message || error);
+        return res.status(500).json({
+            ok: false,
+            message: 'Failed to refresh Gate.io accounts.'
+        });
+    }
 });
 
 app.post('/api/trading/auto', (req, res) => {
@@ -705,8 +1186,10 @@ app.post('/api/trading/auto', (req, res) => {
 
 app.use('/api/admin', adminRouter);
 
-// 0.0.0.0에 바인딩하여 모든 네트워크 인터페이스에서 수신
+// Bind to 0.0.0.0 so Cloud Run accepts traffic from any interface
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on http://0.0.0.0:${PORT}`);
     console.log(`Health check available at http://0.0.0.0:${PORT}/health`);
 });
+
+
