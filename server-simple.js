@@ -594,7 +594,7 @@ const handleUserStatus = (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_uid',
-            message: 'UID가 ??????'
+            message: 'UID is required.'
         });
     }
 
@@ -608,7 +608,7 @@ const handleRegister = (req, res) => {
         return res.status(400).json({
             ok: false,
             code: 'missing_uid',
-            message: 'UID???????'
+            message: 'UID is required.'
         });
     }
 
@@ -618,7 +618,7 @@ const handleRegister = (req, res) => {
         return res.json({
             ok: true,
             status: user.status,
-            message: '?? ???????????',
+            message: 'UID is already approved.',
             accessKey: user.accessKey
         });
     }
@@ -631,12 +631,12 @@ const handleRegister = (req, res) => {
             .map((strategy) => strategy.id);
     }
 
-    appendLog(`[USER] UID ${uid}가 ?????????`);
+    appendLog(`[USER] UID ${uid} submitted a registration request.`);
 
     return res.json({
         ok: true,
         status: user.status,
-        message: '?????????????'
+        message: 'Registration request received.'
     });
 };
 
@@ -646,7 +646,7 @@ const handleUserSignals = (req, res) => {
         return res.status(status).json({
             ok: false,
             code: error,
-            message: '???가??? 못했????'
+            message: 'Failed to load signals.'
         });
     }
 
@@ -669,13 +669,13 @@ const handlePositions = (req, res) => {
         if (error === 'missing_credentials') {
             return res.status(status).json({
                 code: error,
-                message: 'UID? ?????? ??????',
+                message: 'UID credentials are required before requesting positions.',
                 positions: []
             });
         }
         return res.status(status).json({
             code: error,
-            message: '?????가??? 못했????',
+            message: 'Failed to load positions.',
             positions: []
         });
     }
@@ -692,7 +692,7 @@ const adminAuthMiddleware = (req, res, next) => {
     if (!token || token !== ADMIN_TOKEN) {
         return res.status(401).json({
             ok: false,
-            message: '관리자 ??????????'
+            message: 'Admin authentication failed.'
         });
     }
     return next();
@@ -745,7 +745,7 @@ adminRouter.get('/metrics', (req, res) => {
         },
         webhook: {
             ready: Boolean(dataStore.webhook.url),
-            issues: dataStore.webhook.url ? [] : ['???URL?????? ??????'],
+            issues: dataStore.webhook.url ? [] : ['Webhook URL is not configured.'],
             routes: dataStore.webhook.routes,
             lastSignal: dataStore.metrics.lastSignal || null
         },
@@ -793,7 +793,7 @@ adminRouter.post('/webhook', (req, res) => {
         .filter((strategy) => strategy.active)
         .map((strategy) => strategy.id);
 
-    appendLog('[WEBHOOK] ?????URL??????????');
+    appendLog('[WEBHOOK] Created webhook URL and secret.');
 
     res.json({
         url: webhookUrl,
@@ -811,7 +811,7 @@ adminRouter.put('/webhook/routes', (req, res) => {
         .filter((id) => id && dataStore.strategies.has(id));
     dataStore.webhook.updatedAt = nowIsoString();
 
-    appendLog('[WEBHOOK] ????????????????????');
+    appendLog('[WEBHOOK] Updated webhook routes.');
 
     res.json({ ok: true, routes: dataStore.webhook.routes });
 });
@@ -825,7 +825,7 @@ adminRouter.get('/webhook/deliveries', (req, res) => {
 adminRouter.post('/users/approve', (req, res) => {
     const uid = normaliseString(req.body?.uid);
     if (!uid) {
-        return res.status(400).json({ ok: false, message: 'UID가 ??????' });
+        return res.status(400).json({ ok: false, message: 'UID is required.' });
     }
 
     const user = ensureUserExists(uid);
@@ -845,7 +845,7 @@ adminRouter.post('/users/approve', (req, res) => {
 
     dataStore.metrics.signalRecipients.active = Array.from(dataStore.users.values()).filter((item) => item.status === 'approved').length;
 
-    appendLog(`[ADMIN] UID ${uid}가 ????????`);
+    appendLog(`[ADMIN] UID ${uid} approved.`);
 
     res.json({ ok: true, status: user.status, accessKey: user.accessKey });
 });
@@ -853,7 +853,7 @@ adminRouter.post('/users/approve', (req, res) => {
 adminRouter.post('/users/deny', (req, res) => {
     const uid = normaliseString(req.body?.uid);
     if (!uid) {
-        return res.status(400).json({ ok: false, message: 'UID가 ??????' });
+        return res.status(400).json({ ok: false, message: 'UID is required.' });
     }
 
     const user = ensureUserExists(uid);
@@ -863,7 +863,7 @@ adminRouter.post('/users/deny', (req, res) => {
     user.autoTradingEnabled = false;
     user.updatedAt = nowIsoString();
 
-    appendLog(`[ADMIN] UID ${uid}가 거절??????`, 'warn');
+    appendLog(`[ADMIN] UID ${uid} denied.`, 'warn');
 
     res.json({ ok: true, status: user.status });
 });
@@ -871,18 +871,18 @@ adminRouter.post('/users/deny', (req, res) => {
 adminRouter.delete('/users/:uid', (req, res) => {
     const uid = normaliseString(req.params.uid);
     if (!uid || !dataStore.users.has(uid)) {
-        return res.status(404).json({ ok: false, message: '???? 찾을 ???????' });
+        return res.status(404).json({ ok: false, message: 'User not found.' });
     }
 
     dataStore.users.delete(uid);
-    appendLog(`[ADMIN] UID ${uid}가 ????????`, 'warn');
+    appendLog(`[ADMIN] UID ${uid} removed.`, 'warn');
     res.json({ ok: true });
 });
 
 adminRouter.post('/strategies', (req, res) => {
     const name = normaliseString(req.body?.name);
     if (!name) {
-        return res.status(400).json({ ok: false, message: '????????????' });
+        return res.status(400).json({ ok: false, message: 'Strategy name is required.' });
     }
 
     const idBase = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'strategy';
@@ -903,7 +903,7 @@ adminRouter.post('/strategies', (req, res) => {
     };
 
     dataStore.strategies.set(id, strategy);
-    appendLog(`[ADMIN] ?????${name}??가) ???????`);
+    appendLog(`[ADMIN] Strategy ${name} created.`);
     res.json({ ok: true, strategy });
 });
 
@@ -911,19 +911,19 @@ adminRouter.patch('/strategies/:id', (req, res) => {
     const id = normaliseString(req.params.id);
     const strategy = id ? dataStore.strategies.get(id) : null;
     if (!strategy) {
-        return res.status(404).json({ ok: false, message: '????찾을 ???????' });
+        return res.status(404).json({ ok: false, message: 'Strategy not found.' });
     }
 
     const nextActive = req.body?.active !== undefined ? Boolean(req.body.active) : !strategy.active;
     strategy.active = nextActive;
     strategy.updatedAt = nowIsoString();
 
-    appendLog(`[ADMIN] ???${strategy.name}????? ??????????`);
+    appendLog(`[ADMIN] Strategy ${strategy.name} updated.`);
 
     res.json({ ok: true, strategy });
 });
 
-// 미들???
+// Middleware
 app.use(express.json());
 
 const distDir = path.join(__dirname, 'dist');
@@ -932,7 +932,7 @@ const distIndexPath = path.join(distDir, 'index.html');
 const publicIndexPath = path.join(publicDir, 'index.html');
 const serviceWorkerPath = path.join(__dirname, 'service-worker.js');
 
-// ??????경로 구성 (index.html? 직접 ??
+// Static file directories (index.html served explicitly)
 [
     distDir,
     publicDir
