@@ -90,6 +90,31 @@ const ADMIN_TOKEN = normaliseString(
     process.env.ADMIN_TOKEN || process.env.ADMIN_SECRET || process.env.ADMIN_KEY,
     'Ckdgml9788@'
 );
+const resolveWebhookBaseUrl = (req) => {
+    const override = normaliseString(process.env.WEBHOOK_BASE_URL);
+    if (override) {
+        return override.replace(/\/+$/, '');
+    }
+
+    const forwardedHost = normaliseString(req.headers['x-forwarded-host']);
+    const host = forwardedHost || normaliseString(req.get('host'));
+    if (!host) {
+        return '';
+    }
+
+    const protoHeader = normaliseString(req.headers['x-forwarded-proto']);
+    const protocol = protoHeader.split(',')[0] || req.protocol || 'https';
+
+    return `${protocol}://${host}`;
+};
+
+const resolveWebhookPath = () => {
+    const configured = normaliseString(process.env.WEBHOOK_PATH);
+    if (!configured) {
+        return '/webhook';
+    }
+    return configured.startsWith('/') ? configured : `/${configured}`;
+};
 
 const appendLog = (message, level = 'info') => {
     dataStore.logs.push(generateLogEntry(message, level));
@@ -917,9 +942,19 @@ adminRouter.post('/webhook', (req, res) => {
         });
     }
 
-    const identifier = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 12);
-    const webhookUrl = `https://hooks.example.com/tradingview/${identifier}`;
-    const webhookSecret = `whsec_${Math.random().toString(16).slice(2, 10)}`;
+    const baseUrl = resolveWebhookBaseUrl(req);
+    if (!baseUrl) {
+        return res.status(500).json({
+            ok: false,
+            message: 'Unable to determine webhook base URL. Set WEBHOOK_BASE_URL or ensure Host header is present.'
+        });
+    }
+
+    const webhookPath = resolveWebhookPath();
+    const webhookUrl = `${baseUrl}${webhookPath}`;
+    const envSecret = normaliseString(process.env.WEBHOOK_SECRET);
+    const webhookSecret = envSecret || `whsec_${Math.random().toString(16).slice(2, 10)}`;
+
     dataStore.webhook.url = webhookUrl;
     dataStore.webhook.secret = webhookSecret;
     dataStore.webhook.createdAt = nowIsoString();
