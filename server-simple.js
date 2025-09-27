@@ -664,7 +664,8 @@ const summariseWebhookDelivery = (payload) => {
     const side = normaliseString(payload.side || payload.direction);
     const { strategyId, strategyName } = resolveStrategyFromPayload(payload);
     const recipients = buildWebhookRecipients(strategyId);
-    const delivered = recipients.filter((recipient) => recipient.autoTradingEnabled).length;
+    const autoTradingDelivered = recipients.filter((recipient) => recipient.autoTradingEnabled).length;
+    const delivered = recipients.length;
 
     return {
         id: `wh-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -676,6 +677,7 @@ const summariseWebhookDelivery = (payload) => {
         strategyId: strategyId || null,
         strategyName: strategyName || indicator || null,
         delivered,
+        autoTradingDelivered,
         recipients
     };
 };
@@ -1273,12 +1275,13 @@ app.post('/webhook', (req, res) => {
             action: delivery.action,
             side: delivery.side,
             delivered: delivery.delivered,
+            autoTradingDelivered: delivery.autoTradingDelivered,
             receivedAt: delivery.timestamp
         };
         dataStore.metrics.signalRecipients.lastSignalAt = delivery.timestamp;
         dataStore.metrics.signalRecipients.lastDeliveredCount = delivery.delivered;
 
-        appendLog(`[WEBHOOK] Received ${delivery.indicator || 'signal'} for ${delivery.symbol || '-'} (${delivery.delivered} recipients).`);
+        appendLog(`[WEBHOOK] Received ${delivery.indicator || 'signal'} for ${delivery.symbol || '-'} (${delivery.delivered} recipients, ${delivery.autoTradingDelivered} auto).`);
 
         res.json({
             status: 'received',

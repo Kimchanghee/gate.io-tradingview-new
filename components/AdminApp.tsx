@@ -55,6 +55,7 @@ interface AdminWebhookDelivery {
   strategyId?: string;
   strategyName?: string;
   delivered: number;
+  autoTradingDelivered?: number;
   recipients: Array<{
     uid: string;
     status: string;
@@ -93,6 +94,7 @@ interface AdminRealtimeMetrics {
       action?: string;
       side?: string;
       delivered: number;
+      autoTradingDelivered?: number;
       strategyId?: string;
       strategyName?: string;
       recipients?: string[];
@@ -162,6 +164,7 @@ const AdminApp: React.FC = () => {
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
   const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookBaseOverride, setWebhookBaseOverride] = useState('');
   const [metricsState, setMetricsState] = useState<AdminRealtimeMetrics | null>(null);
   const [webhookDeliveries, setWebhookDeliveries] = useState<AdminWebhookDelivery[]>([]);
 
@@ -232,6 +235,7 @@ const AdminApp: React.FC = () => {
     setWebhookLoading(false);
     setWebhookCopied(false);
     setWebhookSaving(false);
+    setWebhookBaseOverride('');
     setMetricsState(null);
     setWebhookDeliveries([]);
   }, []);
@@ -367,6 +371,7 @@ const AdminApp: React.FC = () => {
         }
         if (res.status === 404) {
           setWebhookInfo(null);
+          setWebhookBaseOverride('');
           setWebhookStatus('등록된 웹훅이 없습니다. 아래 버튼으로 새 URL을 발급하세요.');
           return null;
         }
@@ -376,6 +381,9 @@ const AdminApp: React.FC = () => {
         }
         const data: AdminWebhookInfo = await res.json();
         setWebhookInfo(data);
+        if (data?.baseUrl) {
+          setWebhookBaseOverride(data.baseUrl);
+        }
         return data;
       } catch (err) {
         console.error(err);
@@ -413,42 +421,64 @@ const AdminApp: React.FC = () => {
     [token, buildAdminUrl, buildHeaders, resetAdminState],
   );
 
-  const generateWebhook = useCallback(async () => {
-    if (!token) return;
-    if (webhookInfo?.url) {
-      setWebhookStatus('이미 생성된 웹훅 URL이 있습니다. 기존 URL을 사용하세요.');
-      return;
-    }
-    try {
-      setWebhookLoading(true);
-      setWebhookStatus('');
-      const res = await fetch(buildAdminUrl('/webhook'), {
-        method: 'POST',
-        headers: buildHeaders(),
-      });
-      if (res.status === 401) {
-        setError('관리자 토큰이 더 이상 유효하지 않습니다.');
-        resetAdminState();
+  const generateWebhook = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!token) return;
+      const force = Boolean(options?.force);
+      if (webhookInfo?.url && !force) {
+        setWebhookStatus('이미 생성된 웹훅 URL이 있습니다. 도메인을 바꾸거나 새로 발급하려면 "URL 재발급"을 사용하세요.');
         return;
       }
-      if (!res.ok) {
-        setWebhookStatus('웹훅 URL 생성에 실패했습니다.');
-        return;
+      try {
+        setWebhookLoading(true);
+        setWebhookStatus('');
+        const payload: Record<string, unknown> = {};
+        const trimmedBase = webhookBaseOverride.trim();
+        if (force) {
+          payload.force = true;
+        }
+        if (trimmedBase) {
+          payload.baseUrl = trimmedBase;
+        }
+        const res = await fetch(buildAdminUrl('/webhook'), {
+          method: 'POST',
+          headers: buildHeaders(),
+          body: Object.keys(payload).length ? JSON.stringify(payload) : undefined,
+        });
+        if (res.status === 401) {
+          setError('관리자 토큰이 더 이상 유효하지 않습니다.');
+          resetAdminState();
+          return;
+        }
+        if (res.status === 400) {
+          setWebhookStatus('웹훅 기본 URL을 확인할 수 없어요. 환경 변수 또는 입력한 도메인을 다시 확인해주세요.');
+          return;
+        }
+        if (!res.ok) {
+          setWebhookStatus('웹훅 URL 생성에 실패했어요.');
+          return;
+        }
+        const data: AdminWebhookInfo = await res.json();
+        setWebhookInfo(data);
+        if (data?.baseUrl) {
+          setWebhookBaseOverride(data.baseUrl);
+        }
+        if (force) {
+          setActionMessage('웹훅 URL을 다시 생성했어요.');
+        } else if (data.alreadyExists) {
+          setWebhookStatus('이미 생성된 웹훅 URL이 있어 기존 값을 불러왔어요.');
+        } else {
+          setActionMessage('새 웹훅 URL을 생성했어요.');
+        }
+      } catch (err) {
+        console.error(err);
+        setWebhookStatus('웹훅 URL 생성에 실패했어요.');
+      } finally {
+        setWebhookLoading(false);
       }
-      const data: AdminWebhookInfo = await res.json();
-      setWebhookInfo(data);
-      if (data.alreadyExists) {
-        setWebhookStatus('이미 생성된 웹훅 URL이 있어 기존 값을 불러왔습니다.');
-      } else {
-        setActionMessage('새 웹훅 URL을 생성했습니다.');
-      }
-    } catch (err) {
-      console.error(err);
-      setWebhookStatus('웹훅 URL 생성에 실패했습니다.');
-    } finally {
-      setWebhookLoading(false);
-    }
-  }, [token, buildAdminUrl, buildHeaders, resetAdminState, webhookInfo?.url]);
+    },
+    [token, buildAdminUrl, buildHeaders, resetAdminState, webhookInfo?.url, webhookBaseOverride],
+  );
 
   const copyWebhookUrl = useCallback(async () => {
     if (!webhookInfo?.url) return;
@@ -775,6 +805,7 @@ const AdminApp: React.FC = () => {
   const pendingCount = overview?.stats?.pending ?? pendingUsers.length;
   const approvedCount = overview?.stats?.approved ?? approvedUsers.length;
   const canGenerateWebhook = !webhookInfo?.url;
+  const hasWebhook = Boolean(webhookInfo?.url);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gate-dark to-black text-gate-text p-6">
@@ -906,20 +937,29 @@ const AdminApp: React.FC = () => {
               아직 웹훅이 생성되지 않았습니다. 아래 버튼을 눌러 새 URL을 발급하세요.
             </div>
           )}
+          <div className="space-y-2">
+            <label className="text-xs text-gray-400">웹훅 기본 도메인 (옵션)</label>
+            <input
+              type="text"
+              value={webhookBaseOverride}
+              onChange={(event) => setWebhookBaseOverride(event.target.value)}
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-xs font-mono"
+              placeholder="https://your-domain.com"
+            />
+            <p className="text-[11px] text-gray-500">값을 입력하면 해당 도메인에 /webhook 경로를 붙여 URL을 발급합니다.</p>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {canGenerateWebhook && (
-              <button
-                onClick={generateWebhook}
-                disabled={webhookLoading}
-                className={`px-4 py-2 rounded text-sm font-semibold ${
-                  webhookLoading
-                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                    : 'bg-gate-primary text-black hover:bg-green-500 transition'
-                }`}
-              >
-                새 URL 생성
-              </button>
-            )}
+            <button
+              onClick={() => (canGenerateWebhook ? generateWebhook() : generateWebhook({ force: true }))}
+              disabled={webhookLoading}
+              className={`px-4 py-2 rounded text-sm font-semibold ${
+                webhookLoading
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gate-primary text-black hover:bg-green-500 transition'
+              }`}
+            >
+              {canGenerateWebhook ? 'URL 생성' : 'URL 재발급'}
+            </button>
             <button
               onClick={() => fetchWebhookInfo()}
               disabled={webhookLoading}
@@ -930,9 +970,9 @@ const AdminApp: React.FC = () => {
               상태 새로고침
             </button>
           </div>
-          {!canGenerateWebhook && (
+          {hasWebhook && (
             <div className="text-xs text-gray-400 bg-black/30 border border-gray-700 rounded px-3 py-2">
-              이미 생성된 웹훅 URL은 변경할 수 없습니다. 위 주소를 사용하세요.
+              도메인을 바꾸거나 새 URL이 필요하면 위 입력에 원하는 도메인을 적고 ‘URL 재발급’을 눌러주세요.
             </div>
           )}
           {webhookStatus && <div className="text-xs text-gray-300">{webhookStatus}</div>}
@@ -993,7 +1033,7 @@ const AdminApp: React.FC = () => {
                 <div key={delivery.id} className="bg-black/40 border border-gray-700 rounded px-3 py-2 text-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-gray-400 gap-1">
                     <span>{new Date(delivery.timestamp).toLocaleString()}</span>
-                    <span className="text-gray-300">전달 {delivery.delivered}명</span>
+                    <span className="text-gray-300">전달 {delivery.delivered}명{typeof delivery.autoTradingDelivered === 'number' ? ` (AUTO ${delivery.autoTradingDelivered})` : ''}</span>
                   </div>
                   <div className="text-sm font-semibold text-gate-text mt-1">
                     {(delivery.indicator || delivery.strategyName || delivery.strategyId || '미지정 전략')}{' '}
@@ -1138,7 +1178,7 @@ const AdminApp: React.FC = () => {
               {metricsState.webhook.lastSignal.symbol || '-'} ·{' '}
               {(metricsState.webhook.lastSignal.action || '-').toUpperCase()}{' '}
               {(metricsState.webhook.lastSignal.side || '-').toUpperCase()} · 전달{' '}
-              {metricsState.webhook.lastSignal.delivered}명
+              {metricsState.webhook.lastSignal.delivered}명{typeof metricsState.webhook.lastSignal.autoTradingDelivered === 'number' ? ` (AUTO ${metricsState.webhook.lastSignal.autoTradingDelivered})` : ''}
             </div>
           )}
           <div className="max-h-64 overflow-y-auto space-y-2 text-sm">
