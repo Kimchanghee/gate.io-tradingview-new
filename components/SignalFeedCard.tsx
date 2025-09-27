@@ -12,6 +12,7 @@ interface SignalItem {
   leverage?: number;
   status?: string;
   strategyId?: string;
+  strategyName?: string;
   indicator?: string;
   autoTradingExecuted?: boolean;
 }
@@ -84,12 +85,12 @@ const SignalFeedCard: React.FC = () => {
         }
         if (!stopped) {
           setError('none');
-        }
-        if (!stopped && Array.isArray(data?.signals) && data.signals.length) {
-          setSignals((prev) => {
-            const merged = [...data.signals.slice().reverse(), ...prev];
-            return merged.slice(0, 100);
-          });
+          if (Array.isArray(data?.signals)) {
+            const nextSignals = data.signals.slice().reverse().slice(0, 100);
+            setSignals(nextSignals);
+          } else {
+            setSignals([]);
+          }
         }
       } catch (err) {
         console.error(err);

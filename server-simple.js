@@ -1283,6 +1283,55 @@ app.post('/webhook', (req, res) => {
 
         appendLog(`[WEBHOOK] Received ${delivery.indicator || 'signal'} for ${delivery.symbol || '-'} (${delivery.delivered} recipients, ${delivery.autoTradingDelivered} auto).`);
 
+        delivery.recipients.forEach((recipient) => {
+            if (!recipient || !recipient.uid) {
+                return;
+            }
+            const user = dataStore.users.get(recipient.uid);
+            if (!user) {
+                return;
+            }
+            if (!Array.isArray(user.signals)) {
+                user.signals = [];
+            }
+            const sizeValue = toNumber(payload.amount ?? payload.size ?? payload.contracts);
+            const leverageValue = toNumber(payload.leverage);
+            const signalEntry = {
+                id: delivery.id,
+                timestamp: delivery.timestamp,
+                indicator: delivery.indicator,
+                strategyId: delivery.strategyId,
+                strategyName: delivery.strategyName,
+                symbol: delivery.symbol,
+                action: delivery.action,
+                side: delivery.side,
+                status: 'delivered',
+                size: sizeValue || null,
+                leverage: leverageValue || null,
+                autoTradingExecuted: Boolean(recipient.autoTradingEnabled)
+            };
+            user.signals.push(signalEntry);
+            if (user.signals.length > 100) {
+                user.signals.splice(0, user.signals.length - 100);
+            }
+        });
+
+        dataStore.signals.push({
+            id: delivery.id,
+            timestamp: delivery.timestamp,
+            indicator: delivery.indicator,
+            strategyId: delivery.strategyId,
+            strategyName: delivery.strategyName,
+            symbol: delivery.symbol,
+            action: delivery.action,
+            side: delivery.side,
+            delivered: delivery.delivered,
+            autoTradingDelivered: delivery.autoTradingDelivered
+        });
+        if (dataStore.signals.length > 500) {
+            dataStore.signals.splice(0, dataStore.signals.length - 500);
+        }
+
         res.json({
             status: 'received',
             deliveryId: delivery.id,
