@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const express = require('express');
 const app = express();
+app.set('trust proxy', true);
 
 // Cloud Run injects the PORT environment variable
 const PORT = process.env.PORT || 8080;
@@ -48,6 +49,34 @@ const buildEmptyAccounts = () => ({
 
 const nowIsoString = () => new Date().toISOString();
 
+const toBoolean = (value) => {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const lowered = value.trim().toLowerCase();
+        return ['true', '1', 'yes', 'y', 'on'].includes(lowered);
+    }
+    if (typeof value === 'number') {
+        return value === 1;
+    }
+    return false;
+};
+
+const sanitiseBaseUrl = (value) => {
+    const normalised = normaliseString(value);
+    if (!normalised) {
+        return '';
+    }
+    const candidate = normalised.match(/^https?:\/\//i) ? normalised : `https://${normalised}`;
+    try {
+        const url = new URL(candidate);
+        return `${url.protocol}//${url.host}`.replace(/\/+$/, '');
+    } catch (error) {
+        return '';
+    }
+};
+
 const generateLogEntry = (message, level = 'info') => ({
     id: `log-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     timestamp: nowIsoString(),
@@ -62,6 +91,7 @@ const dataStore = {
     signals: [],
     webhook: {
         url: null,
+        baseUrl: null,
         secret: null,
         createdAt: null,
         updatedAt: null,
@@ -90,22 +120,42 @@ const ADMIN_TOKEN = normaliseString(
     process.env.ADMIN_TOKEN || process.env.ADMIN_SECRET || process.env.ADMIN_KEY,
     'Ckdgml9788@'
 );
-const resolveWebhookBaseUrl = (req) => {
-    const override = normaliseString(process.env.WEBHOOK_BASE_URL);
-    if (override) {
-        return override.replace(/\/+$/, '');
+const resolveWebhookBaseUrl = (req, override) => {
+    const explicit = sanitiseBaseUrl(override || process.env.WEBHOOK_BASE_URL);
+    if (explicit) {
+        return explicit;
     }
 
-    const forwardedHost = normaliseString(req.headers['x-forwarded-host']);
-    const host = forwardedHost || normaliseString(req.get('host'));
+    const originHeader = sanitiseBaseUrl(req.headers?.origin);
+    if (originHeader) {
+        return originHeader;
+    }
+
+    const forwardedHost = normaliseString(req.headers?.['x-forwarded-host']);
+    const forwardedProtoHeader = normaliseString(req.headers?.['x-forwarded-proto']);
+    const forwardedProto = forwardedProtoHeader ? forwardedProtoHeader.split(',')[0].trim() : '';
+
+    if (forwardedHost) {
+        const protocol = forwardedProto || 'https';
+        return `${protocol}://${forwardedHost}`.replace(/\/+$/, '');
+    }
+
+    const host = normaliseString(req.headers?.host || req.get('host'));
     if (!host) {
         return '';
     }
 
-    const protoHeader = normaliseString(req.headers['x-forwarded-proto']);
-    const protocol = protoHeader.split(',')[0] || req.protocol || 'https';
+    let protocol = forwardedProto || normaliseString(req.protocol);
+    if (!protocol) {
+        const loweredHost = host.toLowerCase();
+        const isLocal =
+            loweredHost.includes('localhost') ||
+            loweredHost.startsWith('127.') ||
+            loweredHost.startsWith('::1');
+        protocol = isLocal ? 'http' : 'https';
+    }
 
-    return `${protocol}://${host}`;
+    return `${protocol}://${host}`.replace(/\/+$/, '');
 };
 
 const resolveWebhookPath = () => {
@@ -924,6 +974,7 @@ adminRouter.get('/webhook', (req, res) => {
     }
     return res.json({
         url: dataStore.webhook.url,
+        baseUrl: dataStore.webhook.baseUrl,
         secret: dataStore.webhook.secret,
         createdAt: dataStore.webhook.createdAt,
         updatedAt: dataStore.webhook.updatedAt,
@@ -932,45 +983,67 @@ adminRouter.get('/webhook', (req, res) => {
 });
 
 adminRouter.post('/webhook', (req, res) => {
-    if (dataStore.webhook.url) {
-        return res.json({
-            url: dataStore.webhook.url,
-            secret: dataStore.webhook.secret,
-            createdAt: dataStore.webhook.createdAt,
-            updatedAt: dataStore.webhook.updatedAt,
-            alreadyExists: true
-        });
-    }
+    const forceRegenerate = toBoolean(req.body?.force);
+    const resetSecret = toBoolean(req.body?.resetSecret);
+    const baseUrl = resolveWebhookBaseUrl(req, req.body?.baseUrl);
 
-    const baseUrl = resolveWebhookBaseUrl(req);
     if (!baseUrl) {
-        return res.status(500).json({
+        return res.status(400).json({
             ok: false,
-            message: 'Unable to determine webhook base URL. Set WEBHOOK_BASE_URL or ensure Host header is present.'
+            message: 'Unable to determine webhook base URL. Provide WEBHOOK_BASE_URL or include baseUrl in the request.'
         });
     }
 
     const webhookPath = resolveWebhookPath();
     const webhookUrl = `${baseUrl}${webhookPath}`;
-    const envSecret = normaliseString(process.env.WEBHOOK_SECRET);
-    const webhookSecret = envSecret || `whsec_${Math.random().toString(16).slice(2, 10)}`;
+    const hasExisting = Boolean(dataStore.webhook.url);
+    const shouldRefresh = !hasExisting || forceRegenerate || webhookUrl !== dataStore.webhook.url;
 
+    if (!shouldRefresh) {
+        return res.json({
+            url: dataStore.webhook.url,
+            baseUrl: dataStore.webhook.baseUrl,
+            secret: dataStore.webhook.secret,
+            createdAt: dataStore.webhook.createdAt,
+            updatedAt: dataStore.webhook.updatedAt,
+            alreadyExists: true,
+            regenerated: false
+        });
+    }
+
+    const now = nowIsoString();
+    if (!hasExisting || !dataStore.webhook.createdAt) {
+        dataStore.webhook.createdAt = now;
+    }
     dataStore.webhook.url = webhookUrl;
-    dataStore.webhook.secret = webhookSecret;
-    dataStore.webhook.createdAt = nowIsoString();
-    dataStore.webhook.updatedAt = dataStore.webhook.createdAt;
-    dataStore.webhook.routes = serialiseStrategies()
-        .filter((strategy) => strategy.active)
-        .map((strategy) => strategy.id);
+    dataStore.webhook.baseUrl = baseUrl;
+    dataStore.webhook.updatedAt = now;
 
-    appendLog('[WEBHOOK] Created webhook URL and secret.');
+    const envSecret = normaliseString(process.env.WEBHOOK_SECRET);
+    const shouldRegenerateSecret = !envSecret && (resetSecret || !dataStore.webhook.secret || !hasExisting || forceRegenerate);
 
-    res.json({
-        url: webhookUrl,
-        secret: webhookSecret,
+    if (envSecret) {
+        dataStore.webhook.secret = envSecret;
+    } else if (shouldRegenerateSecret) {
+        dataStore.webhook.secret = `whsec_${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    if (!Array.isArray(dataStore.webhook.routes) || dataStore.webhook.routes.length === 0) {
+        dataStore.webhook.routes = serialiseStrategies()
+            .filter((strategy) => strategy.active)
+            .map((strategy) => strategy.id);
+    }
+
+    appendLog(`[WEBHOOK] ${hasExisting ? 'Regenerated' : 'Created'} webhook URL (${webhookUrl}).`);
+
+    return res.json({
+        url: dataStore.webhook.url,
+        baseUrl: dataStore.webhook.baseUrl,
+        secret: dataStore.webhook.secret,
         createdAt: dataStore.webhook.createdAt,
         updatedAt: dataStore.webhook.updatedAt,
-        alreadyExists: false
+        alreadyExists: hasExisting,
+        regenerated: hasExisting
     });
 });
 
