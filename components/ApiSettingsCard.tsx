@@ -78,6 +78,15 @@ const ApiSettingsCard: React.FC = () => {
     setAccounts(null);
     setApiBaseUrl(null);
     setAutoTradingMessage('');
+    dispatch({
+      type: 'SET_ACCOUNT_SUMMARY',
+      payload: {
+        futuresAvailable: 0,
+        network: state.network,
+        isConnected: false,
+        lastUpdated: null,
+      },
+    });
     if (shouldResetUser) {
       dispatch({ type: 'RESET_USER' });
     }
@@ -357,6 +366,19 @@ const ApiSettingsCard: React.FC = () => {
       setAutoToggleLoading(false);
     }
   };
+
+  React.useEffect(() => {
+    const available = accounts?.futures?.available ?? 0;
+    dispatch({
+      type: 'SET_ACCOUNT_SUMMARY',
+      payload: {
+        futuresAvailable: typeof available === 'number' ? available : 0,
+        network: state.network,
+        isConnected: Boolean(accounts),
+        lastUpdated: accounts ? new Date().toISOString() : null,
+      },
+    });
+  }, [accounts, dispatch, state.network]);
 
   const formatNumber = (num: number) => {
     return new Intl.NumberFormat('ko-KR', {

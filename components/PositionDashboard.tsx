@@ -162,6 +162,14 @@ const PositionDashboard: React.FC = () => {
     return () => window.clearInterval(intervalId);
   }, [fetchPositions]);
 
+  useEffect(() => {
+    const handler = () => {
+      void fetchPositions();
+    };
+    window.addEventListener('refresh-positions', handler);
+    return () => window.removeEventListener('refresh-positions', handler);
+  }, [fetchPositions]);
+
   const formatNumber = (num: number) => {
     return new Intl.NumberFormat('ko-KR', {
       minimumFractionDigits: 2,

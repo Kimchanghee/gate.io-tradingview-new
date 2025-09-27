@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Card from './Card';
 import { useAppContext } from '../contexts/AppContext';
+import { LogType } from '../types';
 
 interface SignalItem {
   id: string;
@@ -8,6 +9,7 @@ interface SignalItem {
   action?: string;
   side?: string;
   symbol?: string;
+  price?: number;
   size?: number;
   leverage?: number;
   status?: string;
@@ -23,12 +25,20 @@ const SignalFeedCard: React.FC = () => {
   const { state, translate, dispatch } = useAppContext();
   const [signals, setSignals] = useState<SignalItem[]>([]);
   const [error, setError] = useState<SignalError>('none');
+  const processedSignalIds = useRef<Set<string>>(new Set());
+  const autoTradeStartRef = useRef<number>(Date.now());
+  const autoTradeInFlightRef = useRef(false);
 
   const uid = state.user.uid;
   const accessKey = state.user.accessKey || '';
   const uidReady = state.user.isLoggedIn;
   const isApproved = state.user.status === 'approved';
   const allowedStrategies = useMemo(() => state.user.approvedStrategies || [], [state.user.approvedStrategies]);
+  const autoTradingEnabled = state.user.autoTradingEnabled;
+  const investmentAmount = state.settings.investmentAmount;
+  const configuredLeverage = state.settings.leverage;
+  const configuredSymbol = state.settings.symbol;
+  const accountSummary = state.accountSummary;
 
   const handleUserAccessGuard = useCallback(
     (code?: string): SignalError => {
@@ -104,6 +114,226 @@ const SignalFeedCard: React.FC = () => {
       window.clearInterval(id);
     };
   }, [accessKey, handleUserAccessGuard, isApproved, uid]);
+
+  useEffect(() => {
+    processedSignalIds.current.clear();
+    if (autoTradingEnabled) {
+      autoTradeStartRef.current = Date.now();
+    }
+  }, [autoTradingEnabled, state.network, configuredSymbol]);
+
+  const executeAutoTrade = useCallback(
+    async (signal: SignalItem) => {
+      if (!autoTradingEnabled) {
+        return;
+      }
+      if (autoTradeInFlightRef.current) {
+        return;
+      }
+      if (!uidReady || !uid || !accessKey || !isApproved) {
+        return;
+      }
+      if (!accountSummary.isConnected) {
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          payload: { message: translate('autoTradeRequiresConnection'), type: 'warning' },
+        });
+        return;
+      }
+      if (!investmentAmount || investmentAmount <= 0) {
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          payload: { message: translate('autoTradeAmountRequired'), type: 'warning' },
+        });
+        return;
+      }
+
+      const signalSymbol = signal.symbol || configuredSymbol;
+      if (!signalSymbol) {
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          payload: { message: translate('autoTradeExecutionFailed'), type: 'error' },
+        });
+        return;
+      }
+
+      if (configuredSymbol && signal.symbol && configuredSymbol !== signal.symbol) {
+        dispatch({
+          type: 'ADD_LOG',
+          payload: {
+            message: `${translate('autoTradeSymbolMismatch')} (${signal.symbol} → ${configuredSymbol})`,
+            type: LogType.Warning,
+          },
+        });
+        return;
+      }
+
+      autoTradeInFlightRef.current = true;
+
+      try {
+        const response = await fetch('/api/trading/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid,
+            key: accessKey,
+            network: state.network,
+            symbol: signalSymbol,
+            action: signal.action || signal.side || 'buy',
+            leverage: configuredLeverage,
+            investmentAmount,
+            price: typeof signal.price === 'number' ? signal.price : null,
+          }),
+        });
+
+        const raw = await response.text();
+        let result: any = null;
+        if (raw) {
+          try {
+            result = JSON.parse(raw);
+          } catch (parseError) {
+            console.error('자동 거래 응답 파싱 실패', parseError);
+          }
+        }
+
+        if (response.status === 403 && result?.code) {
+          handleUserAccessGuard(result.code);
+          return;
+        }
+
+        if (!response.ok) {
+          const code = result?.code;
+          if (code === 'insufficient_funds') {
+            dispatch({
+              type: 'ADD_NOTIFICATION',
+              payload: { message: translate('autoTradeInsufficientFunds'), type: 'warning' },
+            });
+            return;
+          }
+          if (code === 'invalid_leverage') {
+            dispatch({
+              type: 'ADD_NOTIFICATION',
+              payload: { message: translate('autoTradeInvalidLeverage'), type: 'warning' },
+            });
+            return;
+          }
+          const message = result?.message || raw || translate('autoTradeExecutionFailed');
+          dispatch({
+            type: 'ADD_NOTIFICATION',
+            payload: { message, type: 'error' },
+          });
+          dispatch({
+            type: 'ADD_LOG',
+            payload: { message, type: LogType.Error },
+          });
+          return;
+        }
+
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          payload: {
+            message: `${signalSymbol} ${translate('autoTradeExecuted')}`,
+            type: 'success',
+          },
+        });
+        dispatch({
+          type: 'ADD_LOG',
+          payload: {
+            message: `${signalSymbol} ${translate('autoTradeExecuted')}`,
+            type: LogType.Success,
+          },
+        });
+
+        if (result?.accounts?.futures) {
+          dispatch({
+            type: 'SET_ACCOUNT_SUMMARY',
+            payload: {
+              futuresAvailable: Number(result.accounts.futures.available) || 0,
+              network: state.network,
+              isConnected: true,
+              lastUpdated: new Date().toISOString(),
+            },
+          });
+        }
+
+        setSignals((prev) =>
+          prev.map((item) =>
+            item.id === signal.id ? { ...item, status: 'executed', autoTradingExecuted: true } : item,
+          ),
+        );
+
+        window.dispatchEvent(new CustomEvent('refresh-positions'));
+      } catch (error) {
+        console.error('자동 거래 실행 실패', error);
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          payload: { message: translate('autoTradeExecutionFailed'), type: 'error' },
+        });
+      } finally {
+        autoTradeInFlightRef.current = false;
+      }
+    },
+    [
+      accessKey,
+      autoTradingEnabled,
+      configuredLeverage,
+      configuredSymbol,
+      dispatch,
+      handleUserAccessGuard,
+      investmentAmount,
+      isApproved,
+      accountSummary,
+      state.network,
+      translate,
+      uid,
+      uidReady,
+    ],
+  );
+
+  useEffect(() => {
+    if (!autoTradingEnabled) {
+      return;
+    }
+    if (!uidReady || !uid || !accessKey || !isApproved) {
+      return;
+    }
+    if (!investmentAmount || investmentAmount <= 0) {
+      return;
+    }
+    if (!accountSummary.isConnected) {
+      return;
+    }
+
+    const run = async () => {
+      for (const signal of signals) {
+        if (!signal?.id) {
+          continue;
+        }
+        if (processedSignalIds.current.has(signal.id)) {
+          continue;
+        }
+        const timestamp = Date.parse(signal.timestamp || '');
+        if (Number.isFinite(timestamp) && timestamp < autoTradeStartRef.current) {
+          processedSignalIds.current.add(signal.id);
+          continue;
+        }
+        processedSignalIds.current.add(signal.id);
+        await executeAutoTrade(signal);
+      }
+    };
+
+    void run();
+  }, [
+    accessKey,
+    accountSummary,
+    autoTradingEnabled,
+    executeAutoTrade,
+    investmentAmount,
+    isApproved,
+    signals,
+    uid,
+    uidReady,
+  ]);
 
   const errorMessage = error === 'forbidden'
     ? translate('signalErrorForbidden')

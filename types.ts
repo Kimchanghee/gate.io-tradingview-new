@@ -57,4 +57,11 @@ export enum Network {
     Mainnet = 'mainnet'
 }
 
+export interface AccountSummary {
+    futuresAvailable: number;
+    network: Network;
+    isConnected: boolean;
+    lastUpdated: string | null;
+}
+
 export type Language = 'ko' | 'en' | 'ja';
