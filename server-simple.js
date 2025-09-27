@@ -47,6 +47,34 @@ const buildEmptyAccounts = () => ({
     totalEstimatedValue: 0
 });
 
+const SYMBOL_CONFIG = {
+    BTC_USDT: { maxLeverage: 125 },
+    ETH_USDT: { maxLeverage: 100 },
+    SOL_USDT: { maxLeverage: 50 },
+    BNB_USDT: { maxLeverage: 75 },
+    XRP_USDT: { maxLeverage: 50 },
+};
+
+const DEFAULT_MAX_LEVERAGE = 50;
+
+const normaliseSymbol = (value) => {
+    const raw = normaliseString(value).toUpperCase();
+    if (!raw) {
+        return 'BTC_USDT';
+    }
+    if (raw.includes('_')) {
+        return raw;
+    }
+    const suffixes = ['USDT', 'USDC', 'USD', 'BTC', 'ETH'];
+    for (const suffix of suffixes) {
+        if (raw.endsWith(suffix) && raw.length > suffix.length) {
+            const base = raw.slice(0, -suffix.length);
+            return `${base}_${suffix}`;
+        }
+    }
+    return raw;
+};
+
 const nowIsoString = () => new Date().toISOString();
 
 const toBoolean = (value) => {
@@ -1506,8 +1534,126 @@ app.get('/api/accounts/all', async (req, res) => {
 });
 
 app.post('/api/trading/auto', (req, res) => {
+    const uid = req.body?.uid;
+    const key = req.body?.accessKey || req.body?.key;
+    const { user, error, status } = resolveUserForCredentialCheck(uid, key);
+    if (error) {
+        return res.status(status).json({ ok: false, code: error, message: 'Unable to verify UID credentials.' });
+    }
+
     const enabled = !!(req.body && req.body.enabled);
+    user.autoTradingEnabled = enabled;
+    user.updatedAt = nowIsoString();
+    appendLog(`[AUTO-TRADING] UID ${user.uid || 'unknown'} ${enabled ? 'enabled' : 'disabled'} auto trading.`);
+
     res.json({ ok: true, autoTradingEnabled: enabled });
+});
+
+app.post('/api/trading/execute', (req, res) => {
+    try {
+        const body = req.body || {};
+        const uid = body.uid;
+        const key = body.key || body.accessKey;
+        const requestedNetwork = normaliseNetworkKey(body.network);
+        const { user, error, status } = resolveUserForCredentialCheck(uid, key);
+        if (error) {
+            return res.status(status).json({ ok: false, code: error, message: 'Unable to verify UID credentials.' });
+        }
+
+        if (user.status !== 'approved') {
+            return res.status(403).json({ ok: false, code: 'uid_not_approved', message: 'UID is not approved for auto trading.' });
+        }
+
+        if (!user.autoTradingEnabled) {
+            return res.status(403).json({ ok: false, code: 'auto_trading_disabled', message: 'Auto trading is disabled for this UID.' });
+        }
+
+        const connections = ensureGateConnections(user);
+        const networkKey = requestedNetwork || normaliseNetworkKey('mainnet');
+        const storedConnection = connections[networkKey];
+        if (!storedConnection) {
+            return res.status(400).json({ ok: false, code: 'api_not_connected', message: 'API credentials are not connected for this network.' });
+        }
+
+        const symbol = normaliseSymbol(body.symbol || user?.settings?.symbol || 'BTC_USDT');
+        const symbolConfig = SYMBOL_CONFIG[symbol] || { maxLeverage: DEFAULT_MAX_LEVERAGE };
+        const leverage = Math.max(1, toNumber(body.leverage) || 1);
+        if (leverage > symbolConfig.maxLeverage) {
+            return res.status(400).json({
+                ok: false,
+                code: 'invalid_leverage',
+                message: `Leverage exceeds the maximum of ${symbolConfig.maxLeverage} for ${symbol}.`
+            });
+        }
+
+        const investmentAmount = toNumber(body.investmentAmount);
+        if (!investmentAmount || investmentAmount <= 0) {
+            return res.status(400).json({ ok: false, code: 'invalid_investment', message: 'Investment amount must be greater than zero.' });
+        }
+
+        const accounts = storedConnection.lastAccounts || buildEmptyAccounts();
+        const available = toNumber(accounts?.futures?.available);
+        if (investmentAmount > available) {
+            return res.status(400).json({ ok: false, code: 'insufficient_funds', message: 'Insufficient available balance for auto trading.' });
+        }
+
+        const actionRaw = normaliseString(body.action || body.side).toLowerCase();
+        const side = actionRaw === 'sell' || actionRaw === 'short' ? 'short' : 'long';
+        const entryPrice = toNumber(body.price);
+        const size = entryPrice > 0 ? investmentAmount / entryPrice : investmentAmount;
+
+        if (!Array.isArray(user.positions)) {
+            user.positions = [];
+        }
+
+        const position = {
+            contract: symbol,
+            size: Number(size.toFixed(6)),
+            side,
+            leverage,
+            margin: Number(investmentAmount.toFixed(2)),
+            pnl: 0,
+            pnlPercentage: 0,
+            entryPrice: entryPrice || 0,
+            markPrice: entryPrice || 0,
+            value: Number(investmentAmount.toFixed(2))
+        };
+
+        user.positions.unshift(position);
+        if (user.positions.length > 50) {
+            user.positions.length = 50;
+        }
+
+        if (!accounts.futures) {
+            accounts.futures = {
+                total: investmentAmount,
+                available: 0,
+                positionMargin: investmentAmount,
+                orderMargin: 0,
+                unrealisedPnl: 0,
+                currency: 'USDT'
+            };
+        } else {
+            const nextAvailable = Math.max(0, toNumber(accounts.futures.available) - investmentAmount);
+            accounts.futures.available = nextAvailable;
+        }
+
+        storedConnection.lastAccounts = accounts;
+        user.updatedAt = nowIsoString();
+
+        appendLog(`[AUTO-TRADE] UID ${user.uid || 'unknown'} ${side.toUpperCase()} ${symbol} ${investmentAmount} USDT @ ${leverage}x`);
+
+        return res.json({
+            ok: true,
+            symbol,
+            leverage,
+            position,
+            accounts
+        });
+    } catch (error) {
+        console.error('Failed to execute auto trade:', error);
+        return res.status(500).json({ ok: false, code: 'auto_trade_failed', message: 'Failed to execute auto trade.' });
+    }
 });
 
 app.use('/api/admin', adminRouter);

@@ -8,6 +8,7 @@ import AdminApp from './components/AdminApp';
 import RegistrationCard from './components/RegistrationCard';
 import SignalFeedCard from './components/SignalFeedCard';
 import UsageGuide from './components/UsageGuide';
+import TradingSettingsCard from './components/TradingSettingsCard';
 
 const App: React.FC = () => {
   const isAdminRoute = useMemo(() => typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'), []);
@@ -103,6 +104,7 @@ const App: React.FC = () => {
 
           <main>
             <RegistrationCard />
+            <TradingSettingsCard />
             <SignalFeedCard />
 
             <div className="mb-5">

@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, useContext, ReactNode, Dispatch, useCallback, useEffect } from 'react';
-import { Settings, Position, LogEntry, Notification, Network, Language, LogType, UserState, UserStatus } from '../types';
+import { Settings, Position, LogEntry, Notification, Network, Language, LogType, UserState, UserStatus, AccountSummary } from '../types';
 import { TRANSLATIONS, TranslationKeys } from '../locales';
 import { WEBSOCKET_URL } from '../config';
 
@@ -15,6 +15,7 @@ interface AppState {
     notifications: Notification[];
     webhookActive: boolean;
     user: UserState;
+    accountSummary: AccountSummary;
 }
 
 // Action Types
@@ -29,6 +30,7 @@ type Action =
     | { type: 'REMOVE_NOTIFICATION'; payload: number }
     | { type: 'SET_WEBHOOK_STATUS'; payload: boolean }
     | { type: 'SET_USER'; payload: Partial<UserState> }
+    | { type: 'SET_ACCOUNT_SUMMARY'; payload: AccountSummary }
     | { type: 'RESET_USER' };
 
 // Initial State
@@ -58,6 +60,12 @@ const initialState: AppState = {
     notifications: [],
     webhookActive: false,
     user: initialUserState,
+    accountSummary: {
+        futuresAvailable: 0,
+        network: Network.Mainnet,
+        isConnected: false,
+        lastUpdated: null,
+    },
 };
 
 // Reducer
@@ -66,7 +74,19 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'SET_CONNECTION_STATUS':
             return { ...state, isConnected: action.payload.status, isConnecting: action.payload.isConnecting };
         case 'SET_NETWORK':
-            return { ...state, network: action.payload, isConnected: false, positions: [], logs: [] };
+            return {
+                ...state,
+                network: action.payload,
+                isConnected: false,
+                positions: [],
+                logs: [],
+                accountSummary: {
+                    futuresAvailable: 0,
+                    network: action.payload,
+                    isConnected: false,
+                    lastUpdated: null,
+                },
+            };
         case 'SET_LANGUAGE':
             return { ...state, language: action.payload };
         case 'UPDATE_SETTINGS':
@@ -87,6 +107,8 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, notifications: state.notifications.filter(n => n.id !== action.payload) };
         case 'SET_WEBHOOK_STATUS':
             return { ...state, webhookActive: action.payload };
+        case 'SET_ACCOUNT_SUMMARY':
+            return { ...state, accountSummary: action.payload };
         case 'SET_USER': {
             const nextUser: UserState = {
                 ...state.user,
@@ -112,7 +134,16 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, user: nextUser };
         }
         case 'RESET_USER':
-            return { ...state, user: initialUserState };
+            return {
+                ...state,
+                user: initialUserState,
+                accountSummary: {
+                    futuresAvailable: 0,
+                    network: state.network,
+                    isConnected: false,
+                    lastUpdated: null,
+                },
+            };
         default:
             return state;
     }
